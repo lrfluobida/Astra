@@ -22,9 +22,11 @@ esac
 mkdir -p "$build_dir"
 cd "$project_dir"
 g++ "${common_flags[@]}" "${mode_flags[@]}" \
+  src/actions.cpp \
   src/protocol.cpp \
   src/session.cpp \
   tests/test_main.cpp \
+  tests/actions_test.cpp \
   tests/protocol_test.cpp \
   tests/session_test.cpp \
   -o "$build_dir/astra_tests"
