@@ -1,6 +1,7 @@
 #include "session.hpp"
 #include "test_support.hpp"
 
+#include <chrono>
 #include <fstream>
 #include <string>
 
@@ -157,4 +158,55 @@ ASTRA_TEST(session_enforces_daily_llm_budget_and_records_news_once_per_day) {
                          "new day usage must begin at one");
     astra::test::require(session.diagnostics().news_by_day.size() == 2,
                          "new day must record its first news payload");
+}
+
+ASTRA_TEST(session_does_not_mutate_confirmed_state_for_malformed_observation) {
+    astra::AgentSession session;
+    auto input = session_fixture();
+    session.handle(input);
+
+    const nlohmann::json malformed = {{"roundNo", 999}, {"teamOur", "broken"}};
+    const auto response = session.handle(malformed, prompt_decision("must not be sent"));
+    astra::test::require(response ==
+                             nlohmann::json{{"roleCommandMap", nlohmann::json::object()}},
+                         "malformed observation must receive conservative response");
+    astra::test::require(session.diagnostics().distinct_rounds == 1,
+                         "malformed observation must not mutate confirmed state");
+
+    input["roundNo"] = 2;
+    session.handle(input);
+    astra::test::require(session.diagnostics().distinct_rounds == 2,
+                         "valid observation after malformed input must advance normally");
+}
+
+ASTRA_TEST(session_keeps_baseline_when_search_exceeds_budget) {
+    using Clock = std::chrono::steady_clock;
+    const auto start = Clock::time_point{};
+    int clock_calls = 0;
+    astra::AgentSession session([&] {
+        ++clock_calls;
+        return clock_calls < 3 ? start : start + std::chrono::milliseconds(8);
+    });
+
+    astra::Decision baseline;
+    baseline.role_commands[10010].action = "move";
+    baseline.role_commands[10010].target_positions = {{8, 25}};
+    bool search_called = false;
+    const auto response = session.handle_with_budget(
+        session_fixture(),
+        baseline,
+        std::chrono::milliseconds(5),
+        [&] {
+            search_called = true;
+            return prompt_decision("late refinement");
+        });
+
+    astra::test::require(search_called, "search must run while initial budget remains");
+    astra::test::require(response["roleCommandMap"].contains("10010"),
+                         "late search result must not replace baseline response");
+    astra::test::require(!response.contains("prompt"),
+                         "late search prompt must not be sent");
+    astra::test::require(session.diagnostics().degradation_reason.find("budget") !=
+                             std::string::npos,
+                         "budget degradation must be observable");
 }

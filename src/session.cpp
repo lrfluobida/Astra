@@ -26,6 +26,34 @@ std::optional<int> accepted_task_actor(const Decision& decision) {
 
 }  // namespace
 
+AgentSession::AgentSession() : AgentSession([] { return Clock::now(); }) {}
+
+AgentSession::AgentSession(ClockFunction clock) : clock_(std::move(clock)) {}
+
+nlohmann::json AgentSession::handle_with_budget(const nlohmann::json& input,
+                                                Decision baseline,
+                                                std::chrono::milliseconds budget,
+                                                const SearchFunction& search) {
+    const auto deadline = clock_() + budget;
+    if (clock_() >= deadline) {
+        auto response = handle(input, std::move(baseline));
+        diagnostics_.degradation_reason = "decision search budget expired before search";
+        return response;
+    }
+
+    try {
+        Decision refined = search();
+        if (clock_() < deadline) return handle(input, std::move(refined));
+        auto response = handle(input, std::move(baseline));
+        diagnostics_.degradation_reason = "decision search budget expired; baseline retained";
+        return response;
+    } catch (const std::exception&) {
+        auto response = handle(input, std::move(baseline));
+        diagnostics_.degradation_reason = "decision search failed; baseline retained";
+        return response;
+    }
+}
+
 nlohmann::json AgentSession::handle(const nlohmann::json& input, Decision proposed) {
     const ParseResult parsed = parse_turn(input);
     if (!parsed.turn || !parsed.errors.empty()) {

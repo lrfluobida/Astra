@@ -13,6 +13,9 @@ case "$mode" in
   release)
     mode_flags=(-O2 -DNDEBUG)
     ;;
+  sanitize)
+    mode_flags=(-O0 -g -fsanitize=address,undefined -fno-omit-frame-pointer)
+    ;;
   *)
     echo "unknown build mode: $mode" >&2
     exit 2

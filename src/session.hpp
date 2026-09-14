@@ -2,7 +2,9 @@
 
 #include "protocol.hpp"
 
+#include <chrono>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -29,7 +31,18 @@ struct SessionDiagnostics {
 
 class AgentSession {
 public:
+    using Clock = std::chrono::steady_clock;
+    using ClockFunction = std::function<Clock::time_point()>;
+    using SearchFunction = std::function<Decision()>;
+
+    AgentSession();
+    explicit AgentSession(ClockFunction clock);
+
     nlohmann::json handle(const nlohmann::json& input, Decision proposed = {});
+    nlohmann::json handle_with_budget(const nlohmann::json& input,
+                                      Decision baseline,
+                                      std::chrono::milliseconds budget,
+                                      const SearchFunction& search);
     const SessionDiagnostics& diagnostics() const;
 
 private:
@@ -46,6 +59,7 @@ private:
     std::optional<int> pending_accept_round_;
     nlohmann::json last_request_;
     nlohmann::json last_response_;
+    ClockFunction clock_;
 };
 
 }  // namespace astra

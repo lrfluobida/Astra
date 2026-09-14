@@ -27,24 +27,29 @@ bool parse_port(const std::string& text, int& port) {
 }
 
 int replay(const std::string& path) {
-    std::ifstream input(path);
-    if (!input) {
-        std::cerr << "cannot open replay input: " << path << '\n';
-        return 2;
+    std::ifstream file;
+    std::istream* input = &std::cin;
+    if (path != "-") {
+        file.open(path);
+        if (!file) {
+            std::cerr << "cannot open replay input: " << path << '\n';
+            return 2;
+        }
+        input = &file;
     }
 
     astra::AgentSession session;
     std::string line;
     int line_number = 0;
-    while (std::getline(input, line)) {
+    while (std::getline(*input, line)) {
         ++line_number;
         try {
             const auto request = nlohmann::json::parse(line);
-            std::cout << session.handle(request).dump() << '\n';
+            std::cout << session.handle(request).dump() << '\n' << std::flush;
         } catch (const nlohmann::json::exception& error) {
             std::cerr << "invalid replay JSON at line " << line_number << ": " << error.what()
                       << '\n';
-            std::cout << conservative_response().dump() << '\n';
+            std::cout << conservative_response().dump() << '\n' << std::flush;
         }
     }
     return 0;
