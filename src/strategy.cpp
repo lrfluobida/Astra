@@ -26,6 +26,10 @@ int mineral_rank(const std::string& name) {
     return 0;
 }
 
+bool is_character(const UnitObservation& unit) {
+    return unit.role_type == RoleType::worker || unit.role_type == RoleType::pioneer;
+}
+
 std::map<std::string, int> positive_prices(const TurnObservation& turn) {
     std::map<std::string, int> result;
     for (const auto& item : turn.vendor_shop) {
@@ -40,6 +44,15 @@ std::map<std::string, int> inventory_counts(const UnitObservation& worker) {
         if (is_mineral(item)) ++result[item];
     }
     return result;
+}
+
+int carried_mineral_count(const UnitObservation& unit) {
+    int total = 0;
+    for (const auto& [name, count] : inventory_counts(unit)) {
+        (void)name;
+        total += count;
+    }
+    return total;
 }
 
 std::optional<ZoneObservation> first_vendor(const TurnObservation& turn) {
@@ -231,39 +244,112 @@ std::optional<CandidateAction> economic_move(const TurnObservation& turn,
     return move_candidate(worker, best->path.next, priority);
 }
 
+std::optional<CandidateAction> return_move(const TurnObservation& turn,
+                                           const UnitObservation& actor,
+                                           const NavigationReservations& reservations,
+                                           int priority) {
+    const auto path = next_step_toward_any(
+        turn, actor.id, station_interaction_cells(turn), reservations);
+    if (!path || path->distance == 0) return std::nullopt;
+    auto candidate = move_candidate(actor, path->next, priority);
+    candidate.source = "defense.return";
+    return candidate;
+}
+
+void reserve_move(const UnitObservation& actor,
+                  const CandidateAction& candidate,
+                  NavigationReservations& reservations) {
+    if (candidate.command.action != "move" || candidate.command.target_positions.empty()) return;
+    const Pos destination = candidate.command.target_positions.front();
+    reservations.destinations.push_back(destination);
+    reservations.edges.push_back({actor.pos, destination});
+}
+
+std::optional<CandidateAction> pioneer_task_action(
+    const TurnObservation& turn,
+    const UnitObservation& pioneer,
+    const NavigationReservations& reservations,
+    int priority) {
+    if (!turn.phase_task.empty()) return std::nullopt;
+    std::vector<Pos> goals;
+    bool adjacent = false;
+    for (const auto& task : turn.team_our.player_tasks) {
+        if (!task.valid || task.cooldown_rounds != 0) continue;
+        if (distance(pioneer.pos, task.position) <= 1) adjacent = true;
+        const auto cells = interaction_cells(turn, task.position);
+        goals.insert(goals.end(), cells.begin(), cells.end());
+    }
+    if (adjacent) {
+        CandidateAction candidate;
+        candidate.action_key = pioneer.id;
+        candidate.command.action = "acceptTask";
+        candidate.priority = priority;
+        candidate.source = "task.accept";
+        return candidate;
+    }
+    const auto path = next_step_toward_any(turn, pioneer.id, goals, reservations);
+    if (!path || path->distance == 0) return std::nullopt;
+    auto candidate = move_candidate(pioneer, path->next, priority);
+    candidate.source = "task.move";
+    return candidate;
+}
+
 }  // namespace
 
 Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     const int round_in_day = (turn.round_no - 1) % 130 + 1;
-    if (round_in_day > 70) return {};
-
     const auto prices = positive_prices(turn);
-    std::vector<const UnitObservation*> workers;
+    std::vector<const UnitObservation*> characters;
     for (const auto& unit : turn.team_our.roles) {
-        if (unit.role_type == RoleType::worker && unit.health && *unit.health > 0) {
-            workers.push_back(&unit);
+        if (is_character(unit) && unit.health && *unit.health > 0) {
+            characters.push_back(&unit);
         }
     }
-    std::sort(workers.begin(), workers.end(), [](const auto* left, const auto* right) {
+    std::sort(characters.begin(), characters.end(), [](const auto* left, const auto* right) {
+        const bool left_carrying = carried_mineral_count(*left) > 0;
+        const bool right_carrying = carried_mineral_count(*right) > 0;
+        if (left_carrying != right_carrying) return left_carrying > right_carrying;
+        if (left->role_type != right->role_type) return left->role_type == RoleType::worker;
         return left->id < right->id;
     });
 
     std::vector<CandidateAction> candidates;
     NavigationReservations reservations;
     int priority = 1000;
-    for (const auto* worker : workers) {
-        std::optional<CandidateAction> candidate = adjacent_sell(turn, *worker, prices, priority);
-        if (!candidate) candidate = adjacent_collect(turn, *worker, prices, priority);
-        if (!candidate) candidate = economic_move(turn, *worker, prices, reservations, priority);
+    for (const auto* actor : characters) {
+        std::optional<CandidateAction> candidate;
+        if (round_in_day > 70) {
+            candidate = return_move(turn, *actor, reservations, priority);
+        } else if (actor->role_type == RoleType::worker) {
+            const auto return_path = next_step_toward_any(
+                turn, actor->id, station_interaction_cells(turn), reservations);
+            const int daylight_remaining = 70 - round_in_day + 1;
+            if (return_path && daylight_remaining <= return_path->distance + 2) {
+                candidate = return_move(turn, *actor, reservations, priority);
+            } else if (station_interaction_cells(turn).empty() && daylight_remaining <= 2) {
+                candidate = std::nullopt;
+            } else {
+                candidate = adjacent_sell(turn, *actor, prices, priority);
+                if (!candidate) candidate = adjacent_collect(turn, *actor, prices, priority);
+                if (!candidate) {
+                    candidate = economic_move(turn, *actor, prices, reservations, priority);
+                }
+            }
+        } else {
+            const auto return_path = next_step_toward_any(
+                turn, actor->id, station_interaction_cells(turn), reservations);
+            const int daylight_remaining = 70 - round_in_day + 1;
+            if (return_path && daylight_remaining <= return_path->distance + 2) {
+                candidate = return_move(turn, *actor, reservations, priority);
+            } else {
+                candidate = pioneer_task_action(turn, *actor, reservations, priority);
+            }
+        }
         if (!candidate) {
             --priority;
             continue;
         }
-        if (candidate->command.action == "move") {
-            const Pos destination = candidate->command.target_positions.front();
-            reservations.destinations.push_back(destination);
-            reservations.edges.push_back({worker->pos, destination});
-        }
+        reserve_move(*actor, *candidate, reservations);
         candidates.push_back(std::move(*candidate));
         --priority;
     }
