@@ -57,12 +57,12 @@
 
 **Files:** Create third_party/ 下上述文件、scripts/build.sh、tests/test_main.cpp、tests/test_support.hpp、.gitignore。
 
-- [ ] **Step 1:** 确认 WSL Ubuntu 仍存在。安装实现所需的 g++：在 PowerShell 分别运行 `wsl -d Ubuntu -u root -- apt-get update` 和 `wsl -d Ubuntu -u root -- apt-get install -y g++`。这是开发环境变更，执行前说明；如安装失败保留错误，先用已有 MinGW 验证纯内核，不把 HTTP 阶段标为完成。
-- [ ] **Step 2:** 从固定官方标签下载头文件和许可证，记录版本与来源；严格 UTF-8 验证第三方文本。不改第三方源文件，不引入联网构建或额外依赖管理器。
-- [ ] **Step 3:** 建立可按名称过滤的断言测试入口。先用仅包含标准库与 JSON 的测试验证中文原文往返、`std::optional` 和整数类型，并确认失败断言确实返回非零。
-- [ ] **Step 4:** 创建增量维护显式源文件列表的构建脚本。编译参数为 `-std=c++17 -Wall -Wextra -Wpedantic -pthread -Isrc -Ithird_party`，release 使用 `-O2`，debug 使用 `-O0 -g`；WSL 调试验证可加 `-fsanitize=address,undefined -fno-omit-frame-pointer`。产物为 build/astra 和 build/astra_tests；本步尚无 main.cpp 时先只构建测试。
-- [ ] **Step 5:** 在 WSL 项目目录运行 `bash scripts/build.sh debug` 和 `./build/astra_tests toolchain`，预期退出码 0，中文 JSON 字符串完全一致。记录实际 g++ 版本；Windows 产物不能替代 Linux 产物。
-- [ ] **Step 6:** 仅提交本任务已验证的源码、脚本与许可证。
+- [x] **Step 1:** 确认 WSL Ubuntu 仍存在。安装实现所需的 g++：在 PowerShell 分别运行 `wsl -d Ubuntu -u root -- apt-get update` 和 `wsl -d Ubuntu -u root -- apt-get install -y g++`。这是开发环境变更，执行前说明；如安装失败保留错误，先用已有 MinGW 验证纯内核，不把 HTTP 阶段标为完成。
+- [x] **Step 2:** 从固定官方标签下载头文件和许可证，记录版本与来源；严格 UTF-8 验证第三方文本。不改第三方源文件，不引入联网构建或额外依赖管理器。
+- [x] **Step 3:** 建立可按名称过滤的断言测试入口。先用仅包含标准库与 JSON 的测试验证中文原文往返、`std::optional` 和整数类型，并确认失败断言确实返回非零。
+- [x] **Step 4:** 创建增量维护显式源文件列表的构建脚本。编译参数为 `-std=c++17 -Wall -Wextra -Wpedantic -pthread -Isrc -Ithird_party`，release 使用 `-O2`，debug 使用 `-O0 -g`；WSL 调试验证可加 `-fsanitize=address,undefined -fno-omit-frame-pointer`。产物为 build/astra 和 build/astra_tests；本步尚无 main.cpp 时先只构建测试。
+- [x] **Step 5:** 在 WSL 项目目录运行 `bash scripts/build.sh debug` 和 `./build/astra_tests toolchain`，预期退出码 0，中文 JSON 字符串完全一致。记录实际 g++ 版本；Windows 产物不能替代 Linux 产物。
+- [x] **Step 6:** 仅提交本任务已验证的源码、脚本与许可证。
 
 ## Task 2: 观测解析与响应契约
 
