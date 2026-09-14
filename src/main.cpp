@@ -1,4 +1,5 @@
 #include "session.hpp"
+#include "strategy.hpp"
 
 #include <httplib.h>
 
@@ -12,6 +13,14 @@ namespace {
 
 nlohmann::json conservative_response() {
     return astra::encode_response(astra::Decision{});
+}
+
+nlohmann::json decide_request(astra::AgentSession& session,
+                              const astra::BaselineStrategy& strategy,
+                              const nlohmann::json& input) {
+    const auto parsed = astra::parse_turn(input);
+    if (!parsed.turn || !parsed.errors.empty()) return conservative_response();
+    return session.handle(input, strategy.decide(*parsed.turn));
 }
 
 bool parse_port(const std::string& text, int& port) {
@@ -39,13 +48,14 @@ int replay(const std::string& path) {
     }
 
     astra::AgentSession session;
+    const astra::BaselineStrategy strategy;
     std::string line;
     int line_number = 0;
     while (std::getline(*input, line)) {
         ++line_number;
         try {
             const auto request = nlohmann::json::parse(line);
-            std::cout << session.handle(request).dump() << '\n' << std::flush;
+            std::cout << decide_request(session, strategy, request).dump() << '\n' << std::flush;
         } catch (const nlohmann::json::exception& error) {
             std::cerr << "invalid replay JSON at line " << line_number << ": " << error.what()
                       << '\n';
@@ -57,6 +67,7 @@ int replay(const std::string& path) {
 
 int serve(int port) {
     astra::AgentSession session;
+    const astra::BaselineStrategy strategy;
     std::mutex session_mutex;
     httplib::Server server;
 
@@ -65,7 +76,7 @@ int serve(int port) {
         try {
             const auto input = nlohmann::json::parse(request.body);
             std::lock_guard<std::mutex> lock(session_mutex);
-            decision = session.handle(input);
+            decision = decide_request(session, strategy, input);
         } catch (const nlohmann::json::exception& error) {
             std::cerr << "invalid request JSON: " << error.what() << '\n';
             decision = conservative_response();

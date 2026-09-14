@@ -11,6 +11,37 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ALLOWED_ACTIONS = {"move", "collect", "sell", "acceptTask"}
+
+
+def validate_response(response, round_no):
+    commands = response.get("roleCommandMap")
+    if not isinstance(commands, dict):
+        raise AssertionError("round {} has no roleCommandMap object".format(round_no))
+    move_targets = set()
+    for actor_id, command in commands.items():
+        action = command.get("action")
+        if action not in ALLOWED_ACTIONS:
+            raise AssertionError(
+                "round {} actor {} has invalid action {!r}".format(
+                    round_no, actor_id, action
+                )
+            )
+        if action in {"move", "collect"}:
+            targets = command.get("targetPos")
+            if not isinstance(targets, list) or len(targets) != 1:
+                raise AssertionError("{} requires one targetPos".format(action))
+            target = targets[0]
+            if not isinstance(target.get("x"), int) or not isinstance(target.get("y"), int):
+                raise AssertionError("targetPos must contain integer coordinates")
+            if action == "move":
+                key = (target["x"], target["y"])
+                if key in move_targets:
+                    raise AssertionError("round {} contains conflicting moves".format(round_no))
+                move_targets.add(key)
+        if action == "sell":
+            if not isinstance(command.get("name"), str) or command.get("num", 0) <= 0:
+                raise AssertionError("sell requires a name and positive num")
 
 
 def request_for_round(base, round_no):
@@ -51,6 +82,17 @@ def main():
         "r", encoding="utf-8"
     ) as source:
         base = json.load(source)
+    base["mapInfo"]["zones"].extend(
+        [
+            {"neutralType": "copper", "pos": {"x": 8, "y": 25}},
+            {"neutralType": "iron", "pos": {"x": 7, "y": 28}},
+            {"neutralType": "vendor", "pos": {"x": 20, "y": 16}},
+        ]
+    )
+    base["vendorShopList"] = [
+        {"name": "copper", "price": 5},
+        {"name": "iron", "price": 8},
+    ]
 
     process = subprocess.Popen(
         [str(Path(args.binary).resolve()), "--replay", "-"],
@@ -64,24 +106,44 @@ def main():
     )
     latencies = []
     damaged_rounds = {round_no for round_no in range(257, args.rounds + 1, 257)}
+    repeated_requests = 0
+
+    def exchange(line, round_no):
+        started = time.perf_counter()
+        process.stdin.write(line + "\n")
+        process.stdin.flush()
+        readable, _, _ = select.select([process.stdout], [], [], 2.0)
+        if not readable:
+            raise AssertionError("no replay response for round {}".format(round_no))
+        response_line = process.stdout.readline()
+        latencies.append(time.perf_counter() - started)
+        return json.loads(response_line)
+
     try:
         for round_no in range(1, args.rounds + 1):
             if round_no in damaged_rounds:
                 line = "{damaged json"
             else:
                 line = json.dumps(request_for_round(base, round_no), ensure_ascii=False)
-            started = time.perf_counter()
-            process.stdin.write(line + "\n")
-            process.stdin.flush()
-            readable, _, _ = select.select([process.stdout], [], [], 2.0)
-            if not readable:
-                raise AssertionError("no replay response for round {}".format(round_no))
-            response_line = process.stdout.readline()
-            latencies.append(time.perf_counter() - started)
-            response = json.loads(response_line)
-            if response != {"roleCommandMap": {}}:
+            response = exchange(line, round_no)
+            if round_no in damaged_rounds:
+                if response != {"roleCommandMap": {}}:
+                    raise AssertionError(
+                        "damaged request must be conservative at round {}".format(round_no)
+                    )
+            else:
+                validate_response(response, round_no)
+
+            if round_no == min(200, args.rounds) and round_no not in damaged_rounds:
+                repeated = exchange(line, round_no)
+                repeated_requests += 1
+                if repeated != response:
+                    raise AssertionError(
+                        "identical replay request changed at round {}".format(round_no)
+                    )
+            if round_no not in damaged_rounds and round_no <= 70 and not response["roleCommandMap"]:
                 raise AssertionError(
-                    "unexpected response at round {}: {!r}".format(round_no, response)
+                    "daytime strategy unexpectedly returned empty at round {}".format(round_no)
                 )
 
         process.stdin.close()
@@ -99,8 +161,9 @@ def main():
     if maximum >= 1.0:
         raise AssertionError("maximum local response latency must stay below 1 second")
     print(
-        "PASS replay rounds={} damaged={} avg_ms={:.3f} p95_ms={:.3f} max_ms={:.3f}".format(
+        "PASS replay rounds={} repeated={} damaged={} avg_ms={:.3f} p95_ms={:.3f} max_ms={:.3f}".format(
             args.rounds,
+            repeated_requests,
             len(damaged_rounds),
             average * 1000,
             p95 * 1000,

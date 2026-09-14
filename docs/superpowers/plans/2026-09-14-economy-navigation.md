@@ -84,11 +84,11 @@
 
 **Files:** Modify `src/main.cpp`, `scripts/build.sh`, `tests/http_test.py`, `tests/replay_test.py`, `README.md`. `main.cpp` 持有一个 `BaselineStrategy`；每次合法请求执行 `parse_turn → strategy.decide → arbitrate → session.handle(input, decision)`，不改变 session 公共接口。
 
-- [ ] **Step 1:** 写 HTTP 失败测试，证明最小白天观测不再总是空响应，并验证相同请求响应稳定。
-- [ ] **Step 2:** HTTP 与回放入口解析一次用于策略；合法观测调用 `BaselineStrategy::decide`，把已裁决 Decision 交给 `AgentSession::handle(input, decision)`。session 为防御边界会再次解析；任一层解析失败都返回保守空响应且不得修改 session。用同一组有效/缺字段输入测试两层解析结论一致，重复请求测试验证策略输出稳定且 session 不重复推进。
-- [ ] **Step 3:** 回放生成器固定覆盖 round 70/71、130/131、角色在 300–319 消失后重现、400/600 任务更替、每 257 回合一条损坏 JSON 和一次完全相同的重复请求。断言每个非空命令 action/必填字段合法、重复请求响应相同、损坏请求响应为空，且不再强制正常回合全部为空。另在 HTTP 集成场景让策略同时生成目标格冲突或同一 actor 冲突候选，断言响应只保留 `arbitrate` 接受的一项并且共享库存未超额预留。
-- [ ] **Step 4:** 运行 debug、release、sanitize 全套；记录 1300 回合平均、P95 和最大延迟。
-- [ ] **Step 5:** README 更新当前已实现能力与未知建造区限制；提交并推送。
+- [x] **Step 1:** 写 HTTP 失败测试，证明最小白天观测不再总是空响应，并验证相同请求响应稳定。
+- [x] **Step 2:** HTTP 与回放入口解析一次用于策略；合法观测调用 `BaselineStrategy::decide`，把已裁决 Decision 交给 `AgentSession::handle(input, decision)`。session 为防御边界会再次解析；任一层解析失败都返回保守空响应且不得修改 session。用同一组有效/缺字段输入测试两层解析结论一致，重复请求测试验证策略输出稳定且 session 不重复推进。
+- [x] **Step 3:** 回放生成器固定覆盖 round 70/71、130/131、角色在 300–319 消失后重现、400/600 任务更替、每 257 回合一条损坏 JSON 和一次完全相同的重复请求。断言每个非空命令 action/必填字段合法、重复请求响应相同、损坏请求响应为空，且不再强制正常回合全部为空。另在 HTTP 集成场景让策略同时生成目标格冲突或同一 actor 冲突候选，断言响应只保留 `arbitrate` 接受的一项并且共享库存未超额预留。
+- [x] **Step 4:** 运行 debug、release、sanitize 全套；1300 回合 release 平均 0.179 ms、P95 0.242 ms、最大 5.118 ms。
+- [x] **Step 5:** README 更新当前已实现能力与未知建造区限制；提交并推送。
 
 ## 完成标准
 
