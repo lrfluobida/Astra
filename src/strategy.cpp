@@ -3,6 +3,7 @@
 #include "actions.hpp"
 #include "combat.hpp"
 #include "navigation.hpp"
+#include "task_solver.hpp"
 
 #include <algorithm>
 #include <map>
@@ -299,6 +300,7 @@ std::optional<CandidateAction> pioneer_task_action(
 
 Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     const int round_in_day = (turn.round_no - 1) % 130 + 1;
+    const TaskCandidates task = task_candidates(turn, 4000);
     const auto prices = positive_prices(turn);
     std::vector<const UnitObservation*> characters;
     for (const auto& unit : turn.team_our.roles) {
@@ -314,12 +316,16 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         return left->id < right->id;
     });
 
-    std::vector<CandidateAction> candidates = combat_candidates(turn, 3000);
+    std::vector<CandidateAction> candidates = task.actions;
+    const auto combat = combat_candidates(turn, 3000);
+    candidates.insert(candidates.end(), combat.begin(), combat.end());
     NavigationReservations reservations;
     int priority = 1000;
     for (const auto* actor : characters) {
         std::optional<CandidateAction> candidate;
-        if (round_in_day > 70) {
+        if (actor->role_type == RoleType::pioneer && !turn.phase_task.empty()) {
+            candidate = std::nullopt;
+        } else if (round_in_day > 70) {
             candidate = return_move(turn, *actor, reservations, priority);
         } else if (actor->role_type == RoleType::worker) {
             const auto return_path = next_step_toward_any(
@@ -354,7 +360,7 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         candidates.push_back(std::move(*candidate));
         --priority;
     }
-    return arbitrate(turn, candidates, {}, {}).decision;
+    return arbitrate(turn, candidates, task.top_level, task.rules).decision;
 }
 
 }  // namespace astra

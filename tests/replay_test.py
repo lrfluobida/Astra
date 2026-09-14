@@ -11,7 +11,14 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED_ACTIONS = {"move", "collect", "sell", "acceptTask", "attack"}
+ALLOWED_ACTIONS = {
+    "move",
+    "collect",
+    "sell",
+    "acceptTask",
+    "attack",
+    "submitAnswer",
+}
 
 
 def validate_response(response, round_no):
@@ -49,6 +56,8 @@ def validate_response(response, round_no):
             if not isinstance(controller, str) or not isinstance(targets, list) or len(targets) != 1:
                 raise AssertionError("level one attack requires controllerId and one targetPos")
             controllers.add(controller)
+        if action == "submitAnswer" and not isinstance(command.get("taskAnswer"), str):
+            raise AssertionError("submitAnswer requires a string taskAnswer")
     if len(controllers) != sum(
         command.get("action") == "attack" for command in commands.values()
     ):
@@ -70,8 +79,18 @@ def request_for_round(base, round_no):
         ]
     if 400 <= round_no < 410:
         request["phaseTask"] = "合成任务甲"
+        if round_no == 401:
+            request["llmResp"] = (
+                '{"kind":"command","command":"python3 -c \'print(42)\'"}'
+            )
+        elif round_no == 402:
+            request["lastCmdResult"] = "[exitCode:0]\n42"
+        elif round_no == 403:
+            request["llmResp"] = '{"kind":"answer","answer":{"value":42}}'
     elif 600 <= round_no < 610:
         request["phaseTask"] = "合成任务乙"
+        if round_no == 601:
+            request["llmResp"] = "直接答案"
 
     for role in request["teamOur"]["roles"]:
         role.pop("cooldown", None)
@@ -145,6 +164,9 @@ def main():
     damaged_rounds = {round_no for round_no in range(257, args.rounds + 1, 257)}
     repeated_requests = 0
     attack_responses = 0
+    prompt_responses = 0
+    command_responses = 0
+    submit_responses = 0
 
     def exchange(line, round_no):
         started = time.perf_counter()
@@ -171,6 +193,20 @@ def main():
                     )
             else:
                 validate_response(response, round_no)
+                if "prompt" in response and "executeCmd" in response:
+                    raise AssertionError("one response must not request prompt and executeCmd together")
+                if "prompt" in response:
+                    if not isinstance(response["prompt"], str) or not response["prompt"]:
+                        raise AssertionError("prompt must be a non-empty string")
+                    prompt_responses += 1
+                if "executeCmd" in response:
+                    if not isinstance(response["executeCmd"], str) or not response["executeCmd"]:
+                        raise AssertionError("executeCmd must be a non-empty string")
+                    command_responses += 1
+                submit_responses += sum(
+                    command.get("action") == "submitAnswer"
+                    for command in response["roleCommandMap"].values()
+                )
                 attack_responses += sum(
                     command.get("action") == "attack"
                     for command in response["roleCommandMap"].values()
@@ -204,6 +240,8 @@ def main():
         raise AssertionError("maximum local response latency must stay below 1 second")
     if args.rounds >= 71 and attack_responses == 0:
         raise AssertionError("night replay never exercised the combat strategy")
+    if args.rounds >= 403 and (prompt_responses == 0 or command_responses == 0 or submit_responses == 0):
+        raise AssertionError("replay did not exercise the complete task prompt pipeline")
     print(
         "PASS replay rounds={} repeated={} damaged={} avg_ms={:.3f} p95_ms={:.3f} max_ms={:.3f}".format(
             args.rounds,

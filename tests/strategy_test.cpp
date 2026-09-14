@@ -264,3 +264,37 @@ ASTRA_TEST(strategy_prioritizes_night_attack_and_returns_unused_characters) {
                              command_for(decision, 10012)->action == "move",
                          "unused worker must continue returning to station");
 }
+
+ASTRA_TEST(strategy_runs_task_prompt_without_stopping_worker_economy) {
+    auto turn = economy_turn();
+    turn.map.zones.push_back({{1, 2}, "copper"});
+    turn.map.zones.push_back({{10, 8}, "vendor"});
+    turn.team_our.roles.push_back(pioneer(10011, {4, 4}));
+    turn.phase_task = "读取本地数据并返回指定 JSON。";
+
+    const auto first = astra::BaselineStrategy().decide(turn);
+    astra::test::require(first.prompt && first.prompt->find(turn.phase_task) != std::string::npos,
+                         "active task must produce a model prompt");
+    astra::test::require(command_for(first, 10010) &&
+                             command_for(first, 10010)->action == "collect",
+                         "task prompt must not stop independent worker economy");
+    astra::test::require(command_for(first, 10011) == nullptr,
+                         "pioneer must remain at its task while waiting for the model");
+
+    turn.llm_response = R"({"kind":"answer","answer":{"value":42}})";
+    const auto answered = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(answered, 10011) &&
+                             command_for(answered, 10011)->action == "submitAnswer" &&
+                             command_for(answered, 10011)->task_answer == "{\"value\":42}",
+                         "model answer must become the pioneer submitAnswer action");
+
+    turn.round_no = 71;
+    turn.team_our.roles.push_back(station({10, 8}));
+    turn.llm_response = R"({"kind":"command","command":"python3 -c 'print(42)'"})";
+    const auto command = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command.execute_command &&
+                             command.execute_command->find("python3") == 0,
+                         "night task command must reach the sandbox");
+    astra::test::require(command_for(command, 10011) == nullptr,
+                         "active-task pioneer must not leave the task point at night");
+}

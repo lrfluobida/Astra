@@ -168,6 +168,51 @@ def run_server(command, fixture):
             targets.append((target.get("x"), target.get("y")))
         if len(set(targets)) != len(targets):
             raise AssertionError("arbitration allowed conflicting move destinations")
+
+        task = copy.deepcopy(night)
+        task["phaseTask"] = "读取 weather.json 并返回北京温度的 JSON 对象。"
+        task["robot"]["roles"] = []
+        task["roundNo"] = 72
+        first_task = post(
+            port, "/act", json.dumps(task, ensure_ascii=False).encode("utf-8")
+        )
+        if task["phaseTask"] not in first_task.get("prompt", ""):
+            raise AssertionError("active task did not produce its initial prompt")
+
+        task["roundNo"] = 73
+        task["llmResp"] = json.dumps(
+            {
+                "kind": "command",
+                "command": "python3 -c 'import json; print(json.load(open(\"weather.json\")))'",
+            },
+            ensure_ascii=False,
+        )
+        command_task = post(
+            port, "/act", json.dumps(task, ensure_ascii=False).encode("utf-8")
+        )
+        if not command_task.get("executeCmd", "").startswith("python3"):
+            raise AssertionError(
+                "model command did not become executeCmd: {!r}".format(command_task)
+            )
+
+        task["roundNo"] = 74
+        task["llmResp"] = ""
+        task["lastCmdResult"] = "[exitCode:0]\n{\"北京\":18}"
+        review_task = post(
+            port, "/act", json.dumps(task, ensure_ascii=False).encode("utf-8")
+        )
+        if task["lastCmdResult"] not in review_task.get("prompt", ""):
+            raise AssertionError("sandbox evidence was not sent for model review")
+
+        task["roundNo"] = 75
+        task["lastCmdResult"] = ""
+        task["llmResp"] = '{"kind":"answer","answer":{"北京":18}}'
+        answer_task = post(
+            port, "/act", json.dumps(task, ensure_ascii=False).encode("utf-8")
+        )
+        submitted = answer_task.get("roleCommandMap", {}).get("10011", {})
+        if submitted.get("action") != "submitAnswer" or submitted.get("taskAnswer") != '{"北京":18}':
+            raise AssertionError("reviewed model answer was not submitted by the pioneer")
     finally:
         process.terminate()
         try:
