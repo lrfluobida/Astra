@@ -36,11 +36,11 @@
 
 **Files:** Create `src/navigation.hpp`, `src/navigation.cpp`, `tests/navigation_test.cpp`; modify `tests/protocol_test.cpp`, `scripts/build.sh`.
 
-- [ ] **Step 1:** 写失败测试：绕开中立点和单位；从 station 左上角展开的基地四格均阻挡；允许从两个相邻障碍物的对角间通过；不可达返回空；缺少 station 时基地目标为空；两个角色预留不同下一格且禁止位置交换。
-- [ ] **Step 2:** 定义 `NavigationGrid`、`NavigationReservations` 与 `next_step_toward_any(turn, actor, goals, reservations)`；预留对象显式保存已选下一格和 `起点→终点` 边，目标可传多个可站立格，返回最短路的第一步和完整距离。
-- [ ] **Step 3:** 用 BFS 搜索观测到的地图宽高和八邻域；固定邻居顺序保证重复输入得到相同结果。当前可见中立点、建筑、角色和机器人均阻挡，当前 actor 起点例外；预留终点和反向边阻挡后续角色。
-- [ ] **Step 4:** 单独生成某目标周围切比雪夫距离 1 的可站立交互格；不把矿区、小贩、任务点本身当成可站立终点。
-- [ ] **Step 5:** 运行 `bash scripts/build.sh debug` 与 `./build/astra_tests navigation`，提交并推送。
+- [x] **Step 1:** 写失败测试：绕开中立点和单位；从 station 左上角展开的基地四格均阻挡；允许从两个相邻障碍物的对角间通过；不可达返回空；缺少 station 时基地目标为空；两个角色预留不同下一格且禁止位置交换。
+- [x] **Step 2:** 定义 `NavigationGrid`、`NavigationReservations` 与 `next_step_toward_any(turn, actor, goals, reservations)`；预留对象显式保存已选下一格和 `起点→终点` 边，目标可传多个可站立格，返回最短路的第一步和完整距离。
+- [x] **Step 3:** 用 BFS 搜索观测到的地图宽高和八邻域；固定邻居顺序保证重复输入得到相同结果。当前可见中立点、建筑、角色和机器人均阻挡，当前 actor 起点例外；预留终点和反向边阻挡后续角色。
+- [x] **Step 4:** 单独生成某目标周围切比雪夫距离 1 的可站立交互格；不把矿区、小贩、任务点本身当成可站立终点。
+- [x] **Step 5:** 运行 `bash scripts/build.sh debug` 与 `./build/astra_tests navigation`，提交并推送。
 
 ## Task 2: 经济和任务动作合法化
 

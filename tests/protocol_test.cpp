@@ -1,4 +1,5 @@
 #include "protocol.hpp"
+#include "navigation.hpp"
 #include "test_support.hpp"
 
 #include <fstream>
@@ -39,6 +40,17 @@ ASTRA_TEST(protocol_parses_minimal_turn_and_preserves_raw_input) {
                              std::string::npos,
                          "Chinese world news must be preserved");
     astra::test::require(result.turn->raw == input, "unmodelled input must remain in raw JSON");
+    const auto station_cells = astra::occupied_cells(find_unit(*result.turn, 10013));
+    const auto has_station_cell = [&](astra::Pos expected) {
+        for (const auto& cell : station_cells) {
+            if (cell.x == expected.x && cell.y == expected.y) return true;
+        }
+        return false;
+    };
+    astra::test::require(station_cells.size() == 4 && has_station_cell({10, 24}) &&
+                             has_station_cell({11, 24}) && has_station_cell({10, 25}) &&
+                             has_station_cell({11, 25}),
+                         "station pos must be interpreted as the 2x2 top-left coordinate");
 }
 
 ASTRA_TEST(protocol_rejects_missing_position_without_inventing_origin) {
