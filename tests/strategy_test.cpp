@@ -42,6 +42,7 @@ astra::TurnObservation economy_turn() {
     turn.round_no = 10;
     turn.map.width = 12;
     turn.map.height = 10;
+    turn.team_our.type = "challenger";
     turn.team_our.gold = 75;
     turn.team_our.roles.push_back(worker(10010, {1, 1}));
     turn.vendor_shop = {{"stone", 1}, {"iron", 3}, {"copper", 5}};
@@ -231,4 +232,35 @@ ASTRA_TEST(strategy_starts_return_before_daylight_expires) {
     astra::test::require(command->target_positions.front().x > 1 ||
                              command->target_positions.front().y > 1,
                          "return move must approach the observed station ring");
+}
+
+ASTRA_TEST(strategy_prioritizes_night_attack_and_returns_unused_characters) {
+    auto turn = economy_turn();
+    turn.round_no = 71;
+    turn.map.width = 20;
+    turn.map.height = 20;
+    auto gun = station({5, 5});
+    gun.id = 10020;
+    gun.role_type = astra::RoleType::gatling;
+    gun.role_type_raw = "gatling";
+    gun.attack_power = 10;
+    gun.attack_range = 5;
+    gun.level = 1;
+    gun.cooldown = 0;
+    turn.team_our.roles = {
+        worker(10010, {4, 5}), worker(10012, {1, 5}), pioneer(10011, {5, 1}),
+        gun, station({10, 10}),
+    };
+    turn.robots.push_back({30001, {8, 5}, "smallRobot", 40, "", "challenger"});
+
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* attack = command_for(decision, 10020);
+    astra::test::require(attack && attack->action == "attack" &&
+                             attack->controller_id == "10010",
+                         "adjacent character must control the ready night weapon");
+    astra::test::require(command_for(decision, 10010) == nullptr,
+                         "weapon controller must not also receive a return move");
+    astra::test::require(command_for(decision, 10012) &&
+                             command_for(decision, 10012)->action == "move",
+                         "unused worker must continue returning to station");
 }

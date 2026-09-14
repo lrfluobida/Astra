@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED_ACTIONS = {"move", "collect", "sell", "acceptTask"}
+ALLOWED_ACTIONS = {"move", "collect", "sell", "acceptTask", "attack"}
 
 
 def validate_response(response, round_no):
@@ -19,6 +19,7 @@ def validate_response(response, round_no):
     if not isinstance(commands, dict):
         raise AssertionError("round {} has no roleCommandMap object".format(round_no))
     move_targets = set()
+    controllers = set()
     for actor_id, command in commands.items():
         action = command.get("action")
         if action not in ALLOWED_ACTIONS:
@@ -42,6 +43,18 @@ def validate_response(response, round_no):
         if action == "sell":
             if not isinstance(command.get("name"), str) or command.get("num", 0) <= 0:
                 raise AssertionError("sell requires a name and positive num")
+        if action == "attack":
+            controller = command.get("controllerId")
+            targets = command.get("targetPos")
+            if not isinstance(controller, str) or not isinstance(targets, list) or len(targets) != 1:
+                raise AssertionError("level one attack requires controllerId and one targetPos")
+            controllers.add(controller)
+    if len(controllers) != sum(
+        command.get("action") == "attack" for command in commands.values()
+    ):
+        raise AssertionError("one controller was assigned to multiple weapons")
+    if controllers.intersection(commands):
+        raise AssertionError("weapon controller also received a character action")
 
 
 def request_for_round(base, round_no):
@@ -93,6 +106,30 @@ def main():
         {"name": "copper", "price": 5},
         {"name": "iron", "price": 8},
     ]
+    base["teamOur"]["roles"].append(
+        {
+            "id": 10020,
+            "pos": {"x": 8, "y": 24},
+            "roleType": "gatling",
+            "health": 1000,
+            "attackPower": 10,
+            "attackRange": 5,
+            "backPackCapability": 0,
+            "backpack": [],
+            "level": 1,
+            "cooldown": 0,
+        }
+    )
+    base["robot"]["roles"] = [
+        {
+            "id": 30001,
+            "pos": {"x": 12, "y": 24},
+            "roleType": "smallRobot",
+            "health": 40,
+            "abnormalState": "",
+            "targetTeam": "challenger",
+        }
+    ]
 
     process = subprocess.Popen(
         [str(Path(args.binary).resolve()), "--replay", "-"],
@@ -107,6 +144,7 @@ def main():
     latencies = []
     damaged_rounds = {round_no for round_no in range(257, args.rounds + 1, 257)}
     repeated_requests = 0
+    attack_responses = 0
 
     def exchange(line, round_no):
         started = time.perf_counter()
@@ -133,6 +171,10 @@ def main():
                     )
             else:
                 validate_response(response, round_no)
+                attack_responses += sum(
+                    command.get("action") == "attack"
+                    for command in response["roleCommandMap"].values()
+                )
 
             if round_no == min(200, args.rounds) and round_no not in damaged_rounds:
                 repeated = exchange(line, round_no)
@@ -160,6 +202,8 @@ def main():
     average = statistics.mean(latencies)
     if maximum >= 1.0:
         raise AssertionError("maximum local response latency must stay below 1 second")
+    if args.rounds >= 71 and attack_responses == 0:
+        raise AssertionError("night replay never exercised the combat strategy")
     print(
         "PASS replay rounds={} repeated={} damaged={} avg_ms={:.3f} p95_ms={:.3f} max_ms={:.3f}".format(
             args.rounds,

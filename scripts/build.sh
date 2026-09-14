@@ -26,6 +26,7 @@ mkdir -p "$build_dir"
 cd "$project_dir"
 g++ "${common_flags[@]}" "${mode_flags[@]}" \
   src/actions.cpp \
+  src/combat.cpp \
   src/main.cpp \
   src/navigation.cpp \
   src/protocol.cpp \
@@ -35,12 +36,14 @@ g++ "${common_flags[@]}" "${mode_flags[@]}" \
 
 g++ "${common_flags[@]}" "${mode_flags[@]}" \
   src/actions.cpp \
+  src/combat.cpp \
   src/navigation.cpp \
   src/protocol.cpp \
   src/session.cpp \
   src/strategy.cpp \
   tests/test_main.cpp \
   tests/actions_test.cpp \
+  tests/combat_test.cpp \
   tests/navigation_test.cpp \
   tests/protocol_test.cpp \
   tests/session_test.cpp \

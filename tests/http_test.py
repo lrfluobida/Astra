@@ -117,21 +117,50 @@ def run_server(command, fixture):
         night = copy.deepcopy(fixture)
         night["roundNo"] = 71
         night_positions = {
-            10010: {"x": 1, "y": 1},
+            10010: {"x": 4, "y": 5},
             10012: {"x": 1, "y": 5},
             10011: {"x": 5, "y": 1},
             10013: {"x": 10, "y": 10},
         }
         for role in night["teamOur"]["roles"]:
             role["pos"] = night_positions[role["id"]]
+        night["teamOur"]["roles"].append(
+            {
+                "id": 10020,
+                "pos": {"x": 5, "y": 5},
+                "roleType": "gatling",
+                "health": 1000,
+                "attackPower": 10,
+                "attackRange": 5,
+                "backPackCapability": 0,
+                "backpack": [],
+                "level": 1,
+                "cooldown": 0,
+            }
+        )
+        night["robot"]["roles"] = [
+            {
+                "id": 30001,
+                "pos": {"x": 8, "y": 5},
+                "roleType": "smallRobot",
+                "health": 40,
+                "abnormalState": "",
+                "targetTeam": "challenger",
+            }
+        ]
         night_response = post(
             port,
             "/act",
             json.dumps(night, ensure_ascii=False).encode("utf-8"),
         )
         night_commands = night_response.get("roleCommandMap", {})
+        attack = night_commands.get("10020")
+        if not attack or attack.get("action") != "attack" or attack.get("controllerId") != "10010":
+            raise AssertionError("night weapon did not use its adjacent controller")
+        if "10010" in night_commands:
+            raise AssertionError("weapon controller also received a character action")
         targets = []
-        for actor_id in ("10010", "10012", "10011"):
+        for actor_id in ("10012", "10011"):
             command = night_commands.get(actor_id)
             if not command or command.get("action") != "move":
                 raise AssertionError("night return omitted actor {}".format(actor_id))

@@ -1,6 +1,7 @@
 #include "strategy.hpp"
 
 #include "actions.hpp"
+#include "combat.hpp"
 #include "navigation.hpp"
 
 #include <algorithm>
@@ -313,7 +314,7 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         return left->id < right->id;
     });
 
-    std::vector<CandidateAction> candidates;
+    std::vector<CandidateAction> candidates = combat_candidates(turn, 3000);
     NavigationReservations reservations;
     int priority = 1000;
     for (const auto* actor : characters) {
