@@ -23,6 +23,8 @@ mkdir -p "$build_dir"
 cd "$project_dir"
 g++ "${common_flags[@]}" "${mode_flags[@]}" \
   src/protocol.cpp \
+  src/session.cpp \
   tests/test_main.cpp \
   tests/protocol_test.cpp \
+  tests/session_test.cpp \
   -o "$build_dir/astra_tests"

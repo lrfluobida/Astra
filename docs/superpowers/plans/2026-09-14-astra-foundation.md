@@ -92,11 +92,11 @@ ParseResult 必须携带失败原因；不能通过 catch-all 静默生成伪造
 
 **Files:** Create src/session.hpp、src/session.cpp、tests/session_test.cpp；modify tests/test_main.cpp、scripts/build.sh。
 
-- [ ] **Step 1:** 写序列测试：round 1→2 正常推进；同轮相同输入返回相同响应且不重复消费结果；同轮不同输入不重复推进记忆；round 倒退/阵营变化触发清空局内状态；两个任务题面相同也能区分不同接取过程。
-- [ ] **Step 2:** 定义 AgentSession 的 `nlohmann::json handle(const nlohmann::json&)`，保留上一请求的完整 JSON、实际响应及 pending LLM/command 的发送回合、本地任务序号。用 JSON 语义相等比较重复输入，不增加哈希依赖。
-- [ ] **Step 3:** 写失败测试：旧任务结果不会写入新任务；没发 prompt 时不将意外 llmResp 当作当前建议；同回合发出的 executeCmd 不能产生已知结果。实现 pending 元数据与结果分派基础，不在此阶段做真正解题。
-- [ ] **Step 4:** 实现以回合、阵营、teamId、已发送接取动作及观测变化驱动的状态更新。新闻同一天只登记一次原文；重复请求不重复扣 LLM 配额。缺少明确任务状态时采取普通日额度，并暂停依赖任务权限的命令。
-- [ ] **Step 5:** 运行 `bash scripts/build.sh debug`、`./build/astra_tests session`，预期全部序列通过；提交本任务变更。
+- [x] **Step 1:** 写序列测试：round 1→2 正常推进；同轮相同输入返回相同响应且不重复消费结果；同轮不同输入不重复推进记忆；round 倒退/阵营变化触发清空局内状态；两个任务题面相同也能区分不同接取过程。
+- [x] **Step 2:** 定义 AgentSession 的 `nlohmann::json handle(const nlohmann::json&)`，保留上一请求的完整 JSON、实际响应及 pending LLM/command 的发送回合、本地任务序号。用 JSON 语义相等比较重复输入，不增加哈希依赖。
+- [x] **Step 3:** 写失败测试：旧任务结果不会写入新任务；没发 prompt 时不将意外 llmResp 当作当前建议；同回合发出的 executeCmd 不能产生已知结果。实现 pending 元数据与结果分派基础，不在此阶段做真正解题。
+- [x] **Step 4:** 实现以回合、阵营、teamId、已发送接取动作及观测变化驱动的状态更新。新闻同一天只登记一次原文；重复请求不重复扣 LLM 配额。缺少明确任务状态时采取普通日额度，并暂停依赖任务权限的命令。
+- [x] **Step 5:** 运行 `bash scripts/build.sh debug`、`./build/astra_tests session`，预期全部序列通过；提交本任务变更。
 
 本阶段的 Decision 默认是空动作；日志要清楚表明策略尚未接入，不能将该响应当作完整参赛能力。
 
