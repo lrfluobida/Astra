@@ -30,6 +30,7 @@ g++ "${common_flags[@]}" "${mode_flags[@]}" \
   src/navigation.cpp \
   src/protocol.cpp \
   src/session.cpp \
+  src/strategy.cpp \
   -o "$build_dir/astra"
 
 g++ "${common_flags[@]}" "${mode_flags[@]}" \
@@ -37,9 +38,11 @@ g++ "${common_flags[@]}" "${mode_flags[@]}" \
   src/navigation.cpp \
   src/protocol.cpp \
   src/session.cpp \
+  src/strategy.cpp \
   tests/test_main.cpp \
   tests/actions_test.cpp \
   tests/navigation_test.cpp \
   tests/protocol_test.cpp \
   tests/session_test.cpp \
+  tests/strategy_test.cpp \
   -o "$build_dir/astra_tests"

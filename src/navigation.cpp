@@ -120,7 +120,7 @@ std::optional<PathStep> next_step_toward_any(const TurnObservation& turn,
             is_goal[index_of(turn, goal)] = true;
         }
     }
-    if (is_goal[start]) return PathStep{actor->pos, 0};
+    if (is_goal[start]) return PathStep{actor->pos, 0, actor->pos};
 
     static constexpr std::array<Pos, 8> offsets = {
         Pos{-1, -1}, Pos{0, -1}, Pos{1, -1}, Pos{-1, 0},
@@ -156,7 +156,9 @@ std::optional<PathStep> next_step_toward_any(const TurnObservation& turn,
 
     int first = reached;
     while (parent[first] != start) first = parent[first];
-    return PathStep{{first % turn.map.width, first / turn.map.width}, distances[reached]};
+    return PathStep{{first % turn.map.width, first / turn.map.width},
+                    distances[reached],
+                    {reached % turn.map.width, reached / turn.map.width}};
 }
 
 }  // namespace astra

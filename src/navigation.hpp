@@ -20,6 +20,7 @@ struct NavigationReservations {
 struct PathStep {
     Pos next;
     int distance = 0;
+    Pos goal;
 };
 
 std::vector<Pos> occupied_cells(const UnitObservation& unit);
