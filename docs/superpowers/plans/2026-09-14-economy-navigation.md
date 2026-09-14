@@ -48,11 +48,11 @@
 
 **Files:** Modify `src/actions.cpp`; modify `tests/actions_test.cpp`. 数据直接使用现有 `ZoneObservation`、`TaskPointObservation`、`UnitObservation`，不增加重复协议模型。
 
-- [ ] **Step 1:** 写失败测试覆盖 collect、sell、acceptTask：`health` 缺失、零或负数都保守拒绝，另覆盖 round 70/71、目标/名称、切比雪夫邻接、矿物类型、背包重复项计数、任务来自 `teamOur.playerTasks`、`isValid` 与 `coldDownRounds`。
-- [ ] **Step 2:** 放行完整校验后的 collect：仅存活工人、白天、一个相邻矿区目标。
-- [ ] **Step 3:** 放行完整校验后的 sell：存活角色邻接 vendor，只允许 stone/iron/copper，`command.number` 表示一次批量出售数量，数量为正且背包足够；`reservation.items[sellingActorId][name]` 以出售角色作为库存 owner，必须与数量一致并进入共享预留。本动作的 `actionKey` 也等于 sellingActorId，但校验依据是 owner 语义而非命令键巧合。
-- [ ] **Step 4:** 放行完整校验后的 acceptTask：仅存活开拓者，当前无任务，邻接己方有效任务点且冷却为 0。
-- [ ] **Step 5:** 运行动作全套测试，确认 collect/sell/acceptTask 与移动、操炮、物品预留共用 actor-use 冲突路径，其他未完成动作仍明确拒绝；提交并推送。
+- [x] **Step 1:** 写失败测试覆盖 collect、sell、acceptTask：`health` 缺失、零或负数都保守拒绝，另覆盖 round 70/71、目标/名称、切比雪夫邻接、矿物类型、背包重复项计数、任务来自 `teamOur.playerTasks`、`isValid` 与 `coldDownRounds`。
+- [x] **Step 2:** 放行完整校验后的 collect：仅存活工人、白天、一个相邻矿区目标。
+- [x] **Step 3:** 放行完整校验后的 sell：存活角色邻接 vendor，只允许 stone/iron/copper，`command.number` 表示一次批量出售数量，数量为正且背包足够；`reservation.items[sellingActorId][name]` 以出售角色作为库存 owner，必须与数量一致并进入共享预留。本动作的 `actionKey` 也等于 sellingActorId，但校验依据是 owner 语义而非命令键巧合。
+- [x] **Step 4:** 放行完整校验后的 acceptTask：仅存活开拓者，当前无任务，邻接己方有效任务点且冷却为 0。
+- [x] **Step 5:** 运行动作全套测试，确认 collect/sell/acceptTask 与移动、操炮、物品预留共用 actor-use 冲突路径，其他未完成动作仍明确拒绝；提交并推送。
 
 ## Task 3: 白天经济候选生成
 

@@ -212,6 +212,74 @@ std::string validate_submit(const TurnObservation& turn, const CandidateAction& 
     return "";
 }
 
+bool is_mineral(const std::string& name) {
+    return name == "stone" || name == "iron" || name == "copper";
+}
+
+std::string validate_collect(const TurnObservation& turn, const CandidateAction& candidate) {
+    const auto* actor = find_own_unit(turn, candidate.action_key);
+    if (!alive(actor) || actor->role_type != RoleType::worker) {
+        return "collect actor is not a living worker";
+    }
+    if (!is_day(turn.round_no)) return "collect is unavailable at night";
+    if (candidate.command.target_positions.size() != 1) {
+        return "collect requires one targetPos";
+    }
+    const Pos target = candidate.command.target_positions.front();
+    if (distance(actor->pos, target) > 1) return "collect target is not adjacent";
+    const bool mineral_exists = std::any_of(turn.map.zones.begin(), turn.map.zones.end(),
+                                            [&](const ZoneObservation& zone) {
+                                                return same_pos(zone.pos, target) &&
+                                                       is_mineral(zone.neutral_type);
+                                            });
+    return mineral_exists ? "" : "collect target is not an observed mineral";
+}
+
+std::string validate_sell(const TurnObservation& turn, const CandidateAction& candidate) {
+    const auto* actor = find_own_unit(turn, candidate.action_key);
+    if (!alive(actor) || !is_character(*actor)) return "sell actor is not a living character";
+    if (!candidate.command.name || !is_mineral(*candidate.command.name)) {
+        return "sell requires a mineral name";
+    }
+    const int quantity = candidate.command.number.value_or(1);
+    if (quantity <= 0) return "sell num must be positive";
+    const bool beside_vendor = std::any_of(turn.map.zones.begin(), turn.map.zones.end(),
+                                           [&](const ZoneObservation& zone) {
+                                               return zone.neutral_type == "vendor" &&
+                                                      distance(actor->pos, zone.pos) <= 1;
+                                           });
+    if (!beside_vendor) return "sell actor is not adjacent to an observed vendor";
+    if (item_count(*actor, *candidate.command.name) < quantity) {
+        return "sell quantity exceeds actor inventory";
+    }
+    const auto owner = candidate.reservation.items.find(candidate.action_key);
+    if (owner == candidate.reservation.items.end()) {
+        return "sell must reserve the selling actor inventory";
+    }
+    const auto item = owner->second.find(*candidate.command.name);
+    if (item == owner->second.end() || item->second != quantity ||
+        candidate.reservation.items.size() != 1 || owner->second.size() != 1) {
+        return "sell reservation must match selling actor and quantity";
+    }
+    return "";
+}
+
+std::string validate_accept_task(const TurnObservation& turn,
+                                 const CandidateAction& candidate) {
+    const auto* actor = find_own_unit(turn, candidate.action_key);
+    if (!alive(actor) || actor->role_type != RoleType::pioneer) {
+        return "acceptTask actor is not the living pioneer";
+    }
+    if (!turn.phase_task.empty()) return "acceptTask requires no active task";
+    const bool ready_task =
+        std::any_of(turn.team_our.player_tasks.begin(), turn.team_our.player_tasks.end(),
+                    [&](const TaskPointObservation& task) {
+                        return task.valid && task.cooldown_rounds == 0 &&
+                               distance(actor->pos, task.position) <= 1;
+                    });
+    return ready_task ? "" : "acceptTask requires an adjacent ready own task point";
+}
+
 std::string validate_action(const TurnObservation& turn,
                             const CandidateAction& candidate,
                             const ArbitrationRules& rules,
@@ -232,6 +300,9 @@ std::string validate_action(const TurnObservation& turn,
     if (candidate.command.action == "build") return validate_build(turn, candidate, rules);
     if (candidate.command.action == "use") return validate_use(turn, candidate);
     if (candidate.command.action == "submitAnswer") return validate_submit(turn, candidate);
+    if (candidate.command.action == "collect") return validate_collect(turn, candidate);
+    if (candidate.command.action == "sell") return validate_sell(turn, candidate);
+    if (candidate.command.action == "acceptTask") return validate_accept_task(turn, candidate);
 
     const std::string& action = candidate.command.action;
     if ((action == "sell" || action == "buy") && !candidate.command.name) {
@@ -252,7 +323,7 @@ std::string validate_action(const TurnObservation& turn,
     if (action == "drop" && !candidate.command.name) return "drop requires name";
 
     static const std::set<std::string> defined_actions = {
-        "sell", "buy", "remove", "acceptTask", "summonTreasure", "drop", "collect"};
+        "buy", "remove", "summonTreasure", "drop"};
     if (defined_actions.count(action) != 0) {
         return "defined action is not supported by this arbitration stage";
     }

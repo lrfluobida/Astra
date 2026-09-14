@@ -264,3 +264,98 @@ ASTRA_TEST(actions_drop_task_command_when_pioneer_moves_or_submits) {
     astra::test::require(!submitting.decision.execute_command.has_value(),
                          "task command must stop when pioneer submits an answer");
 }
+
+ASTRA_TEST(actions_validate_collect_daylight_target_and_health) {
+    auto turn = action_turn(70);
+    turn.map.zones.push_back({{8, 24}, "stone"});
+    astra::CandidateAction collect;
+    collect.action_key = 10010;
+    collect.command.action = "collect";
+    collect.command.target_positions = {{8, 24}};
+    collect.priority = 100;
+
+    const auto valid = astra::arbitrate(turn, {collect}, {}, {});
+    astra::test::require(valid.decision.role_commands.count(10010) == 1,
+                         "living worker must collect adjacent mineral at round 70");
+
+    turn.round_no = 71;
+    astra::test::require(astra::arbitrate(turn, {collect}, {}, {}).decision.role_commands.empty(),
+                         "collect must stop at night start");
+    turn.round_no = 70;
+    for (auto health : {std::optional<int>{}, std::optional<int>{0}, std::optional<int>{-1}}) {
+        auto unhealthy = turn;
+        for (auto& unit : unhealthy.team_our.roles) {
+            if (unit.id == 10010) unit.health = health;
+        }
+        astra::test::require(
+            astra::arbitrate(unhealthy, {collect}, {}, {}).decision.role_commands.empty(),
+            "collect must reject missing or non-positive health");
+    }
+}
+
+ASTRA_TEST(actions_validate_sell_quantity_inventory_and_owner_reservation) {
+    auto turn = action_turn(20);
+    turn.map.zones.push_back({{8, 24}, "vendor"});
+    for (auto& unit : turn.team_our.roles) {
+        if (unit.id == 10010) unit.backpack = {"stone", "stone", "iron"};
+    }
+    astra::CandidateAction sell;
+    sell.action_key = 10010;
+    sell.command.action = "sell";
+    sell.command.name = "stone";
+    sell.command.number = 2;
+    sell.reservation.items[10010]["stone"] = 2;
+    sell.priority = 100;
+
+    const auto valid = astra::arbitrate(turn, {sell}, {}, {});
+    astra::test::require(valid.decision.role_commands.count(10010) == 1,
+                         "seller must batch-sell owned minerals beside vendor");
+
+    auto overdrawn = sell;
+    overdrawn.command.number = 3;
+    overdrawn.reservation.items[10010]["stone"] = 3;
+    astra::test::require(
+        astra::arbitrate(turn, {overdrawn}, {}, {}).decision.role_commands.empty(),
+        "sell quantity must not exceed selling actor inventory");
+    auto wrong_owner = sell;
+    wrong_owner.reservation.items.clear();
+    wrong_owner.reservation.items[10012]["stone"] = 2;
+    astra::test::require(
+        astra::arbitrate(turn, {wrong_owner}, {}, {}).decision.role_commands.empty(),
+        "sell reservation owner must be the selling actor");
+}
+
+ASTRA_TEST(actions_validate_accept_task_owner_cooldown_and_health) {
+    auto turn = action_turn(20);
+    turn.team_our.player_tasks.front().position = {12, 24};
+    turn.team_our.player_tasks.front().cooldown_rounds = 0;
+    turn.team_our.player_tasks.front().valid = true;
+    astra::CandidateAction accept;
+    accept.action_key = 10011;
+    accept.command.action = "acceptTask";
+    accept.priority = 100;
+
+    astra::test::require(
+        astra::arbitrate(turn, {accept}, {}, {}).decision.role_commands.count(10011) == 1,
+        "living pioneer beside own ready task point must accept task");
+
+    turn.team_our.player_tasks.front().cooldown_rounds = 1;
+    astra::test::require(
+        astra::arbitrate(turn, {accept}, {}, {}).decision.role_commands.empty(),
+        "cooling task point must reject acceptance");
+    turn.team_our.player_tasks.front().cooldown_rounds = 0;
+    turn.team_our.player_tasks.front().valid = false;
+    astra::test::require(
+        astra::arbitrate(turn, {accept}, {}, {}).decision.role_commands.empty(),
+        "invalid own task point must reject acceptance");
+    turn.team_our.player_tasks.front().valid = true;
+    for (auto health : {std::optional<int>{}, std::optional<int>{0}, std::optional<int>{-1}}) {
+        auto unhealthy = turn;
+        for (auto& unit : unhealthy.team_our.roles) {
+            if (unit.id == 10011) unit.health = health;
+        }
+        astra::test::require(
+            astra::arbitrate(unhealthy, {accept}, {}, {}).decision.role_commands.empty(),
+            "acceptTask must reject missing or non-positive health");
+    }
+}
