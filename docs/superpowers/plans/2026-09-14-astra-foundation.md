@@ -70,12 +70,12 @@
 
 **Files:** Create src/protocol.hpp、src/protocol.cpp、tests/protocol_test.cpp、tests/fixtures/minimal_turn.json、tests/fixtures/README.md；modify scripts/build.sh。
 
-- [ ] **Step 1:** 根据接口文档手工建立最小合成观测：41×32，Astra challenger，一座 2×2 基地、两工人、一开拓者、75 金币、空任务和机器人数组。保留中文 worldNews。不要原样复制 response.txt 的重复键，也不要把缺失的样例字段说成正式规则。
-- [ ] **Step 2:** 写失败测试：必需坐标缺失不会变成 (0,0)；未知 roleType 不产生可操控角色；未知字段不破坏解析；缺失 cooldown/targetTeam/timeoutRounds 表示未知并限制相关策略，不以零值证明可攻击或任务未超时。
-- [ ] **Step 3:** 在 src/protocol.hpp 定义 Pos、UnitObservation、TaskPointObservation、TurnObservation、ParseResult，以及最小 Decision 响应结构（roleCommandMap 与可选 prompt/executeCmd），由 src/protocol.cpp 实现解析和编码。使用可选值表示文档样例缺失的信息。至少保留 mapInfo、teamOur、teamEnemy、robot、phaseTask、上回合结果、worldNews、商店和 errors。TurnObservation 的 raw 字段保留完整 JSON，后续不因未建模字段丢失信息；Task 3 的会话和 Task 4 的裁决器直接复用 Decision，使本任务可独立编译。
-- [ ] **Step 4:** 编写并实现响应序列化测试：空响应准确输出对象 `{"roleCommandMap":{}}`；字典键用 ID 字符串；attack 使用武器键和角色 controllerId；prompt/executeCmd 未使用时可省略；中文字符串不转成转义序列或乱码。
-- [ ] **Step 5:** 运行 `bash scripts/build.sh debug`、`./build/astra_tests protocol`，先观察失败再实现至通过。测试比较 JSON 语义及原始中文值，不依赖对象键顺序。
-- [ ] **Step 6:** 更新样例说明，记录哪些字段来自规则、哪些数值只是测试场景；提交本任务变更。
+- [x] **Step 1:** 根据接口文档手工建立最小合成观测：41×32，Astra challenger，一座 2×2 基地、两工人、一开拓者、75 金币、空任务和机器人数组。保留中文 worldNews。不要原样复制 response.txt 的重复键，也不要把缺失的样例字段说成正式规则。
+- [x] **Step 2:** 写失败测试：必需坐标缺失不会变成 (0,0)；未知 roleType 不产生可操控角色；未知字段不破坏解析；缺失 cooldown/targetTeam/timeoutRounds 表示未知并限制相关策略，不以零值证明可攻击或任务未超时。
+- [x] **Step 3:** 在 src/protocol.hpp 定义 Pos、UnitObservation、TaskPointObservation、TurnObservation、ParseResult，以及最小 Decision 响应结构（roleCommandMap 与可选 prompt/executeCmd），由 src/protocol.cpp 实现解析和编码。使用可选值表示文档样例缺失的信息。至少保留 mapInfo、teamOur、teamEnemy、robot、phaseTask、上回合结果、worldNews、商店和 errors。TurnObservation 的 raw 字段保留完整 JSON，后续不因未建模字段丢失信息；Task 3 的会话和 Task 4 的裁决器直接复用 Decision，使本任务可独立编译。
+- [x] **Step 4:** 编写并实现响应序列化测试：空响应准确输出对象 `{"roleCommandMap":{}}`；字典键用 ID 字符串；attack 使用武器键和角色 controllerId；prompt/executeCmd 未使用时可省略；中文字符串不转成转义序列或乱码。
+- [x] **Step 5:** 运行 `bash scripts/build.sh debug`、`./build/astra_tests protocol`，先观察失败再实现至通过。测试比较 JSON 语义及原始中文值，不依赖对象键顺序。
+- [x] **Step 6:** 更新样例说明，记录哪些字段来自规则、哪些数值只是测试场景；提交本任务变更。
 
 预期公共函数契约：
 

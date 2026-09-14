@@ -1,0 +1,87 @@
+{
+  "roundNo": 1,
+  "mapInfo": {
+    "width": 41,
+    "height": 32,
+    "zones": [
+      {
+        "neutralType": "challengerTaskPoint1",
+        "pos": {"x": 14, "y": 14}
+      }
+    ]
+  },
+  "teamOur": {
+    "type": "challenger",
+    "teamId": "astra-test",
+    "teamName": "Astra",
+    "goldNum": 75,
+    "totalScore": 0,
+    "playerTasks": [
+      {
+        "taskType": "自进化类1",
+        "taskPosition": {"x": 14, "y": 14},
+        "coldDownRounds": 0,
+        "scoreReward": 50,
+        "goldReward": 30,
+        "isValid": true
+      }
+    ],
+    "roles": [
+      {
+        "id": 10013,
+        "pos": {"x": 10, "y": 24},
+        "roleType": "station",
+        "health": 1500,
+        "attackPower": 0,
+        "attackRange": 0,
+        "backPackCapability": 0,
+        "backpack": [],
+        "level": 1
+      },
+      {
+        "id": 10010,
+        "pos": {"x": 9, "y": 25},
+        "roleType": "worker",
+        "health": 220,
+        "attackPower": 0,
+        "attackRange": 0,
+        "backPackCapability": 100,
+        "backpack": []
+      },
+      {
+        "id": 10012,
+        "pos": {"x": 10, "y": 25},
+        "roleType": "worker",
+        "health": 220,
+        "attackPower": 0,
+        "attackRange": 0,
+        "backPackCapability": 100,
+        "backpack": []
+      },
+      {
+        "id": 10011,
+        "pos": {"x": 11, "y": 24},
+        "roleType": "pioneer",
+        "health": 200,
+        "attackPower": 0,
+        "attackRange": 0,
+        "backPackCapability": 40,
+        "backpack": []
+      }
+    ]
+  },
+  "teamEnemy": {"roles": []},
+  "robot": {"roles": []},
+  "phaseTask": "",
+  "lastRoundRoleActionResults": {},
+  "lastSummonTreasureResult": 0,
+  "llmResp": "",
+  "worldNews": {
+    "officialNews": "Astra 合成测试：今日无重大新闻",
+    "folkLegends": "北方旅人说，星光会为耐心的人指路。"
+  },
+  "lastCmdResult": "",
+  "vendorShopList": [],
+  "weaponShopList": [],
+  "errors": []
+}
