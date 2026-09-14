@@ -132,12 +132,12 @@ require(accepted.gold_reserved() <= turn.gold,
 
 **Files:** Create src/main.cpp、run.sh、tests/http_test.py；modify scripts/build.sh。
 
-- [ ] **Step 1:** 用 Python 标准库写 HTTP 进程测试，命令为 `python3 tests/http_test.py --binary ./build/astra`。测试以参数列表启动进程、等待短周期就绪并在 finally 中终止自己的子进程，不使用跨 shell 拼接进程清理命令。
-- [ ] **Step 2:** 测试端口来自命令行，POST `/` 和 `/act` 都得到 JSON 对象；正文包含中文；服务连续接收两个不同回合；非法 JSON 返回 HTTP 200 和保守空动作，随后有效请求仍可处理。路径未在比赛文档固定，服务注册通用 POST 路由，平台明确后再收敛。
-- [ ] **Step 3:** 使用 cpp-httplib 接入 AgentSession，以互斥保护一次完整的状态读取、决策和提交。串行调度避免共享状态竞态；并发请求只作为健壮性检查，不假设平台会并发调度不同回合。
-- [ ] **Step 4:** 实现参数形式 `astra <port>` 和 `astra --replay <input.jsonl>`。回放每行是独立请求，stdout 每行一个响应 JSON，诊断写 stderr。未知参数或非法端口在启动时明确失败，不启动无效服务。
-- [ ] **Step 5:** 写 run.sh，从脚本所在目录定位 build/astra，并用 `exec` 转发端口。启动过程不下载依赖、不自动重编译、不要求 Python 常驻服务。
-- [ ] **Step 6:** 运行 `bash scripts/build.sh debug`、`python3 tests/http_test.py --binary ./build/astra`。预期进程存活、HTTP 响应可解析、中文保持一致；加入 `bash run.sh` 的真实启动测试，记录 Linux 本地结果，提交本任务变更。
+- [x] **Step 1:** 用 Python 标准库写 HTTP 进程测试，命令为 `python3 tests/http_test.py --binary ./build/astra`。测试以参数列表启动进程、等待短周期就绪并在 finally 中终止自己的子进程，不使用跨 shell 拼接进程清理命令。
+- [x] **Step 2:** 测试端口来自命令行，POST `/` 和 `/act` 都得到 JSON 对象；正文包含中文；服务连续接收两个不同回合；非法 JSON 返回 HTTP 200 和保守空动作，随后有效请求仍可处理。路径未在比赛文档固定，服务注册通用 POST 路由，平台明确后再收敛。
+- [x] **Step 3:** 使用 cpp-httplib 接入 AgentSession，以互斥保护一次完整的状态读取、决策和提交。串行调度避免共享状态竞态；并发请求只作为健壮性检查，不假设平台会并发调度不同回合。
+- [x] **Step 4:** 实现参数形式 `astra <port>` 和 `astra --replay <input.jsonl>`。回放每行是独立请求，stdout 每行一个响应 JSON，诊断写 stderr。未知参数或非法端口在启动时明确失败，不启动无效服务。
+- [x] **Step 5:** 写 run.sh，从脚本所在目录定位 build/astra，并用 `exec` 转发端口。启动过程不下载依赖、不自动重编译、不要求 Python 常驻服务。
+- [x] **Step 6:** 运行 `bash scripts/build.sh debug`、`python3 tests/http_test.py --binary ./build/astra`。预期进程存活、HTTP 响应可解析、中文保持一致；加入 `bash run.sh` 的真实启动测试，记录 Linux 本地结果，提交本任务变更。
 
 ## Task 6: 1300 回合与预算降级验证
 
