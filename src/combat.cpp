@@ -53,8 +53,8 @@ int robot_points(const std::string& type) {
     return 0;
 }
 
-bool explicitly_targets_opponent(const TurnObservation& turn, const RobotObservation& robot) {
-    return robot.target_team && *robot.target_team != turn.team_our.type;
+bool targets_our_team(const TurnObservation& turn, const RobotObservation& robot) {
+    return robot.target_team && *robot.target_team == turn.team_our.type;
 }
 
 int station_distance(const TurnObservation& turn, const Pos& pos) {
@@ -76,16 +76,12 @@ long long damage_utility(const TurnObservation& turn,
                          int damage) {
     if (health <= 0 || damage <= 0) return 0;
     const int dealt = std::min(health, damage);
-    if (explicitly_targets_opponent(turn, robot)) {
-        return -static_cast<long long>(dealt) * 1000 -
-               (dealt == health ? robot_points(robot.role_type) * 10000LL : 0LL);
-    }
-    const int confidence = robot.target_team ? 4 : 1;
+    const int threat_multiplier = targets_our_team(turn, robot) ? 4 : 1;
     const int proximity = std::max(0, 24 - station_distance(turn, robot.pos));
     long long result = static_cast<long long>(dealt) *
-                       (20 + robot_attack(robot.role_type) + proximity) * confidence;
+                       (20 + robot_attack(robot.role_type) + proximity) * threat_multiplier;
     if (dealt == health) {
-        result += static_cast<long long>(robot_points(robot.role_type)) * 4000 * confidence;
+        result += static_cast<long long>(robot_points(robot.role_type)) * 4000;
     }
     return result;
 }
@@ -113,7 +109,6 @@ std::optional<AttackPlan> rocket_plan(const TurnObservation& turn,
     const auto robots = live_robots(turn);
     std::set<std::pair<int, int>> cells;
     for (const auto* robot : robots) {
-        if (explicitly_targets_opponent(turn, *robot)) continue;
         for (int dx = -1; dx <= 1; ++dx) {
             for (int dy = -1; dy <= 1; ++dy) {
                 const Pos target{robot->pos.x + dx, robot->pos.y + dy};
@@ -142,7 +137,7 @@ std::optional<AttackPlan> rocket_plan(const TurnObservation& turn,
                 if (splash_distance > 1) continue;
                 const int damage = splash_distance == 0 ? 20 : 10;
                 score += damage_utility(turn, *robot, health[robot->id], damage);
-                if (!explicitly_targets_opponent(turn, *robot) && health[robot->id] > 0) {
+                if (health[robot->id] > 0) {
                     ++affected;
                 }
             }
@@ -185,8 +180,7 @@ std::optional<AttackPlan> railgun_plan(const TurnObservation& turn,
     AttackPlan best;
     bool found = false;
     for (const auto* endpoint_robot : robots) {
-        if (explicitly_targets_opponent(turn, *endpoint_robot) ||
-            distance(weapon.pos, endpoint_robot->pos) > *weapon.attack_range) {
+        if (distance(weapon.pos, endpoint_robot->pos) > *weapon.attack_range) {
             continue;
         }
         std::vector<const RobotObservation*> line;
@@ -256,8 +250,7 @@ std::optional<AttackPlan> gatling_plan(const TurnObservation& turn,
     const auto robots = live_robots(turn);
     std::vector<Pos> targets;
     for (const auto* robot : robots) {
-        if (!explicitly_targets_opponent(turn, *robot) &&
-            distance(weapon.pos, robot->pos) <= *weapon.attack_range) {
+        if (distance(weapon.pos, robot->pos) <= *weapon.attack_range) {
             targets.push_back(robot->pos);
         }
     }

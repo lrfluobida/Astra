@@ -52,11 +52,11 @@ astra::TurnObservation combat_turn() {
 
 }  // namespace
 
-ASTRA_TEST(combat_attacks_only_at_night_and_avoids_enemy_targeted_robots) {
+ASTRA_TEST(combat_attacks_any_pve_robot_but_prioritizes_our_immediate_threat) {
     auto turn = combat_turn();
     const auto rocket = weapon(10040, {10, 10}, astra::RoleType::rocket, 1, 10, 20);
     turn.robots = {
-        robot(1, {12, 10}, "bossRobot", 20, "defender"),
+        robot(1, {12, 10}, "smallRobot", 20, "defender"),
         robot(2, {15, 10}, "smallRobot", 20, "challenger"),
     };
 
@@ -65,7 +65,14 @@ ASTRA_TEST(combat_attacks_only_at_night_and_avoids_enemy_targeted_robots) {
                          "night weapon must receive a legal target");
     astra::test::require(std::max(std::abs(night->targets[0].x - 15),
                                  std::abs(night->targets[0].y - 10)) <= 1,
-                         "strategy must avoid robots explicitly attacking the opponent");
+                         "strategy must prioritize the robot threatening our own base");
+
+    turn.robots.erase(turn.robots.begin() + 1);
+    const auto remaining = astra::plan_weapon_attack(turn, rocket);
+    astra::test::require(remaining &&
+                             std::max(std::abs(remaining->targets[0].x - 12),
+                                      std::abs(remaining->targets[0].y - 10)) <= 1,
+                         "PVE scoring must still attack robots with another targetTeam");
 
     turn.round_no = 70;
     astra::test::require(!astra::plan_weapon_attack(turn, rocket),
