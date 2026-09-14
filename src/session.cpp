@@ -69,7 +69,7 @@ nlohmann::json AgentSession::handle(const nlohmann::json& input, Decision propos
     }
 
     if (last_round_ && turn.round_no == *last_round_) {
-        return last_response_;
+        return last_request_ == input ? last_response_ : encode_response(Decision{});
     }
 
     if (!last_round_) {

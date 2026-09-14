@@ -26,9 +26,9 @@
 
 **Files:** Modify `src/session.cpp`, `tests/session_test.cpp`.
 
-- [ ] **Step 1:** 写失败测试：同一回合语义相同的 JSON 返回缓存响应；同一回合载荷不同则返回 `{"roleCommandMap":{}}`，不重复消费 LLM、结果或回合状态。
-- [ ] **Step 2:** 在 `AgentSession::handle` 的同回合分支比较 `last_request_ == input`；相同返回 `last_response_`，不同返回保守空 Decision，且不覆盖缓存。
-- [ ] **Step 3:** 运行 `bash scripts/build.sh debug && ./build/astra_tests session`，预期全部通过；提交并推送。
+- [x] **Step 1:** 写失败测试：同一回合语义相同的 JSON 返回缓存响应；同一回合载荷不同则返回 `{"roleCommandMap":{}}`，不重复消费 LLM、结果或回合状态。
+- [x] **Step 2:** 在 `AgentSession::handle` 的同回合分支比较 `last_request_ == input`；相同返回 `last_response_`，不同返回保守空 Decision，且不覆盖缓存。
+- [x] **Step 3:** 运行 `bash scripts/build.sh debug && ./build/astra_tests session`，预期全部通过；提交并推送。
 
 ## Task 1: 八方向保守寻路
 

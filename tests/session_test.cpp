@@ -41,9 +41,15 @@ ASTRA_TEST(session_advances_once_and_returns_cached_response_for_same_round) {
 
     auto round_two = round_one;
     round_two["roundNo"] = 2;
-    session.handle(round_two);
+    astra::Decision round_two_move;
+    round_two_move.role_commands[10010].action = "move";
+    round_two_move.role_commands[10010].target_positions = {{8, 25}};
+    session.handle(round_two, round_two_move);
     round_two["worldNews"]["officialNews"] = "同一回合的修订消息";
-    session.handle(round_two, prompt_decision("must not run"));
+    const auto conflicting = session.handle(round_two, prompt_decision("must not run"));
+    astra::test::require(conflicting ==
+                             nlohmann::json{{"roleCommandMap", nlohmann::json::object()}},
+                         "different payload in the same round must get a conservative response");
     astra::test::require(session.diagnostics().distinct_rounds == 2,
                          "different payload in the same round must not advance twice");
     astra::test::require(session.diagnostics().daily_llm_used == 1,
