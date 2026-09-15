@@ -46,6 +46,18 @@ ASTRA_TEST(defense_derives_build_rings_and_three_rocket_layout) {
                          "interior 2x2 station must have a 12-cell weapon ring");
     astra::test::require(layout->wall_build_tiles.size() == 20,
                          "weapon ring must have a 20-cell outer wall ring");
+    astra::test::require(layout->front_wall_tiles.size() == 10,
+                         "straight-line robots only require half of the wall ring");
+    for (const auto& wall : layout->front_wall_tiles) {
+        astra::test::require(has_pos(layout->wall_build_tiles, wall),
+                             "every front wall must remain inside the legal wall ring");
+    }
+    astra::test::require(has_pos(layout->front_wall_tiles, {5, 26}) &&
+                             has_pos(layout->front_wall_tiles, {5, 31}) &&
+                             has_pos(layout->front_wall_tiles, {1, 26}),
+                         "upper-left base must wall its right and bottom approach sides");
+    astra::test::require(!has_pos(layout->front_wall_tiles, {0, 31}),
+                         "rear corner must remain open");
     astra::test::require(has_pos(layout->weapon_build_tiles, layout->near_rocket),
                          "near rocket must be inside the weapon ring");
     astra::test::require(has_pos(layout->weapon_build_tiles, layout->far_rockets[0]) &&
@@ -73,5 +85,11 @@ ASTRA_TEST(defense_layout_mirrors_between_match_halves) {
         astra::test::require(lower_right->far_rockets[index].x == expected.x &&
                                  lower_right->far_rockets[index].y == expected.y,
                              "far rocket order must mirror exactly after swapping positions");
+    }
+    for (std::size_t index = 0; index < upper_left->front_wall_tiles.size(); ++index) {
+        const auto expected = mirror(upper_left->front_wall_tiles[index]);
+        astra::test::require(lower_right->front_wall_tiles[index].x == expected.x &&
+                                 lower_right->front_wall_tiles[index].y == expected.y,
+                             "front half-wall order must mirror exactly after swapping positions");
     }
 }

@@ -1,5 +1,8 @@
 #include "defense.hpp"
 
+#include <algorithm>
+#include <tuple>
+
 namespace astra {
 namespace {
 
@@ -55,6 +58,20 @@ std::optional<DefenseLayout> derive_defense_layout(const TurnObservation& turn) 
 
     const int toward_center_x = direction((turn.map.width - 1) - (2 * station->pos.x + 1));
     const int toward_center_y = direction((turn.map.height - 1) - (2 * station->pos.y - 1));
+    const int station_center_x2 = 2 * station->pos.x + 1;
+    const int station_center_y2 = 2 * station->pos.y - 1;
+    layout.front_wall_tiles = layout.wall_build_tiles;
+    std::sort(layout.front_wall_tiles.begin(),
+              layout.front_wall_tiles.end(),
+              [&](const Pos& left, const Pos& right) {
+                  const int left_x = toward_center_x * (2 * left.x - station_center_x2);
+                  const int left_y = toward_center_y * (2 * left.y - station_center_y2);
+                  const int right_x = toward_center_x * (2 * right.x - station_center_x2);
+                  const int right_y = toward_center_y * (2 * right.y - station_center_y2);
+                  return std::make_tuple(left_x + left_y, left_x, left_y) >
+                         std::make_tuple(right_x + right_y, right_x, right_y);
+              });
+    layout.front_wall_tiles.resize(layout.front_wall_tiles.size() / 2);
     const int near_x = toward_center_x > 0 ? station->pos.x + 2 : station->pos.x - 1;
     const int near_y = toward_center_y > 0 ? station->pos.y + 1 : station->pos.y - 2;
     const int far_x = toward_center_x > 0 ? station->pos.x - 1 : station->pos.x + 2;

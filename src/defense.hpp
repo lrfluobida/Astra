@@ -11,6 +11,7 @@ namespace astra {
 struct DefenseLayout {
     std::vector<Pos> weapon_build_tiles;
     std::vector<Pos> wall_build_tiles;
+    std::vector<Pos> front_wall_tiles;
     Pos near_rocket;
     std::array<Pos, 2> far_rockets;
 };

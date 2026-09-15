@@ -1,3 +1,4 @@
+#include "defense.hpp"
 #include "strategy.hpp"
 #include "test_support.hpp"
 
@@ -402,4 +403,55 @@ ASTRA_TEST(strategy_buys_and_uses_upgrades_on_far_rockets_first) {
     astra::test::require(buy && buy->action == "buy" &&
                              buy->name == std::optional<std::string>("WeaponUpgradeVoucher2"),
                          "both far rockets must continue toward level3 before upgrading near");
+}
+
+ASTRA_TEST(strategy_collects_stone_for_front_wall_while_other_worker_upgrades) {
+    auto turn = economy_turn();
+    turn.map.width = 15;
+    turn.map.height = 15;
+    turn.team_our.gold = 100;
+    turn.weapon_shop = {{"WeaponUpgradeVoucher1", 100}};
+    turn.map.zones = {{{6, 10}, "weaponShop"}, {{7, 5}, "stone"}};
+    turn.team_our.roles = {
+        worker(10010, {7, 10}), worker(10012, {7, 6}), station({10, 8}),
+        rocket(10040, {12, 9}, 1), rocket(10041, {11, 9}, 1),
+        rocket(10042, {9, 6}, 1),
+    };
+
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(decision, 10010) &&
+                             command_for(decision, 10010)->action == "buy",
+                         "upgrade worker must keep buying the near-rocket voucher");
+    astra::test::require(command_for(decision, 10012) &&
+                             command_for(decision, 10012)->action == "collect" &&
+                             command_for(decision, 10012)->target_positions.front().x == 7 &&
+                             command_for(decision, 10012)->target_positions.front().y == 5,
+                         "wall worker must collect one stone per round for the half-wall");
+}
+
+ASTRA_TEST(strategy_builds_only_the_front_half_wall_with_reserved_stone) {
+    auto turn = economy_turn();
+    turn.map.width = 15;
+    turn.map.height = 15;
+    auto builder = worker(10012, {7, 5});
+    builder.backpack.assign(10, "stone");
+    turn.team_our.roles = {
+        worker(10010, {1, 1}), builder, station({10, 8}),
+        rocket(10040, {12, 9}, 3), rocket(10041, {11, 9}, 3),
+        rocket(10042, {9, 6}, 3),
+    };
+
+    const auto layout = astra::derive_defense_layout(turn);
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* build = command_for(decision, 10012);
+    astra::test::require(layout && build && build->action == "build" &&
+                             build->name == std::optional<std::string>("wall"),
+                         "prepared wall worker must build a wall");
+    astra::test::require(std::any_of(layout->front_wall_tiles.begin(),
+                                    layout->front_wall_tiles.end(),
+                                    [&](const astra::Pos& pos) {
+                                        return pos.x == build->target_positions.front().x &&
+                                               pos.y == build->target_positions.front().y;
+                                    }),
+                         "wall target must belong to the selected front half only");
 }

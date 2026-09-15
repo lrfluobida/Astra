@@ -57,6 +57,10 @@ bool has_item(const UnitObservation& unit, const std::string& name) {
     return std::find(unit.backpack.begin(), unit.backpack.end(), name) != unit.backpack.end();
 }
 
+int inventory_count(const UnitObservation& unit, const std::string& name) {
+    return static_cast<int>(std::count(unit.backpack.begin(), unit.backpack.end(), name));
+}
+
 const ZoneObservation* first_weapon_shop(const TurnObservation& turn) {
     for (const auto& zone : turn.map.zones) {
         if (zone.neutral_type == "weaponShop") return &zone;
@@ -399,6 +403,64 @@ std::optional<CandidateAction> rocket_upgrade_action(
     return candidate;
 }
 
+std::optional<CandidateAction> front_wall_action(
+    const TurnObservation& turn,
+    const UnitObservation& worker,
+    const std::vector<Pos>& missing_walls,
+    const NavigationReservations& reservations,
+    int priority) {
+    const int stones = inventory_count(worker, "stone");
+    if (stones >= static_cast<int>(missing_walls.size())) {
+        for (const auto& target : missing_walls) {
+            if (distance(worker.pos, target) != 1) continue;
+            CandidateAction candidate;
+            candidate.action_key = worker.id;
+            candidate.command.action = "build";
+            candidate.command.name = "wall";
+            candidate.command.target_positions = {target};
+            candidate.reservation.items[worker.id]["stone"] = 1;
+            candidate.priority = priority;
+            candidate.source = "defense.build_front_wall";
+            return candidate;
+        }
+        std::vector<Pos> goals;
+        for (const auto& target : missing_walls) {
+            const auto cells = interaction_cells(turn, target);
+            goals.insert(goals.end(), cells.begin(), cells.end());
+        }
+        const auto path = next_step_toward_any(turn, worker.id, goals, reservations);
+        if (!path || path->distance == 0) return std::nullopt;
+        auto candidate = move_candidate(worker, path->next, priority);
+        candidate.source = "defense.move_to_front_wall";
+        return candidate;
+    }
+
+    if (!worker.backpack_capacity || *worker.backpack_capacity <= 0 ||
+        worker.backpack.size() >= static_cast<std::size_t>(*worker.backpack_capacity)) {
+        return std::nullopt;
+    }
+    std::vector<Pos> stone_goals;
+    for (const auto& zone : turn.map.zones) {
+        if (zone.neutral_type != "stone") continue;
+        if (distance(worker.pos, zone.pos) <= 1) {
+            CandidateAction candidate;
+            candidate.action_key = worker.id;
+            candidate.command.action = "collect";
+            candidate.command.target_positions = {zone.pos};
+            candidate.priority = priority;
+            candidate.source = "defense.collect_wall_stone";
+            return candidate;
+        }
+        const auto cells = interaction_cells(turn, zone.pos);
+        stone_goals.insert(stone_goals.end(), cells.begin(), cells.end());
+    }
+    const auto path = next_step_toward_any(turn, worker.id, stone_goals, reservations);
+    if (!path || path->distance == 0) return std::nullopt;
+    auto candidate = move_candidate(worker, path->next, priority);
+    candidate.source = "defense.move_to_stone";
+    return candidate;
+}
+
 void reserve_move(const UnitObservation& actor,
                   const CandidateAction& candidate,
                   NavigationReservations& reservations) {
@@ -456,6 +518,12 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     if (defense_layout && missing_rocket_sites.empty()) {
         upgrade_target = choose_upgrade_target(turn, *defense_layout);
     }
+    std::vector<Pos> missing_front_walls;
+    if (defense_layout && missing_rocket_sites.empty()) {
+        for (const auto& target : defense_layout->front_wall_tiles) {
+            if (!building_at(turn, target)) missing_front_walls.push_back(target);
+        }
+    }
     std::vector<const UnitObservation*> characters;
     for (const auto& unit : turn.team_our.roles) {
         if (is_character(unit) && unit.health && *unit.health > 0) {
@@ -469,22 +537,42 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         if (left->role_type != right->role_type) return left->role_type == RoleType::worker;
         return left->id < right->id;
     });
-    std::optional<int> upgrade_actor;
+    std::optional<int> voucher_holder;
     if (upgrade_target) {
         for (const auto* actor : characters) {
             if (actor->role_type == RoleType::worker && has_item(*actor, upgrade_target->voucher)) {
-                upgrade_actor = actor->id;
+                voucher_holder = actor->id;
                 break;
             }
         }
-        if (!upgrade_actor) {
-            for (const auto* actor : characters) {
-                if (actor->role_type == RoleType::worker) {
-                    upgrade_actor = actor->id;
+    }
+    std::optional<int> wall_actor;
+    if (!missing_front_walls.empty()) {
+        for (const auto* actor : characters) {
+            if (actor->role_type == RoleType::worker && actor->id != voucher_holder &&
+                inventory_count(*actor, "stone") > 0) {
+                wall_actor = actor->id;
+                break;
+            }
+        }
+        if (!wall_actor) {
+            for (auto actor = characters.rbegin(); actor != characters.rend(); ++actor) {
+                if ((*actor)->role_type == RoleType::worker && (*actor)->id != voucher_holder) {
+                    wall_actor = (*actor)->id;
                     break;
                 }
             }
         }
+    }
+    std::optional<int> upgrade_actor = voucher_holder;
+    if (upgrade_target && !upgrade_actor) {
+        for (const auto* actor : characters) {
+            if (actor->role_type == RoleType::worker && actor->id != wall_actor) {
+                upgrade_actor = actor->id;
+                break;
+            }
+        }
+        if (!upgrade_actor) upgrade_actor = wall_actor;
     }
 
     std::vector<CandidateAction> candidates = task.actions;
@@ -492,6 +580,9 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     candidates.insert(candidates.end(), combat.begin(), combat.end());
     NavigationReservations reservations;
     reservations.destinations = missing_rocket_sites;
+    reservations.destinations.insert(reservations.destinations.end(),
+                                     missing_front_walls.begin(),
+                                     missing_front_walls.end());
     std::size_t defense_index = 0;
     int priority = 1000;
     for (const auto* actor : characters) {
@@ -523,6 +614,13 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
                                                       *upgrade_target,
                                                       reservations,
                                                       priority);
+                }
+                if (!candidate && !missing_front_walls.empty() && wall_actor == actor->id) {
+                    candidate = front_wall_action(turn,
+                                                  *actor,
+                                                  missing_front_walls,
+                                                  reservations,
+                                                  priority);
                 }
                 if (!candidate) candidate = adjacent_sell(turn, *actor, prices, priority);
                 if (!candidate) candidate = adjacent_collect(turn, *actor, prices, priority);
