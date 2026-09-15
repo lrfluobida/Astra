@@ -76,4 +76,4 @@
 - [x] Document the two-half position swap, ranking objective, geometry assumption, and fallback pressure direction.
 - [x] Re-open all edited text as UTF-8 and verify Chinese text.
 - [x] Run Debug, Release, Sanitizer, HTTP, 1300-round replay, and package checks.
-- [ ] Regenerate `dist/Astra-CoreGeek.tar.gz`, commit, and push.
+- [x] Regenerate `dist/Astra-CoreGeek.tar.gz`, commit, and push.
