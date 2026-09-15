@@ -37,6 +37,17 @@ astra::UnitObservation station(astra::Pos pos) {
     return unit;
 }
 
+astra::UnitObservation rocket(int id, astra::Pos pos, int level) {
+    auto unit = station(pos);
+    unit.id = id;
+    unit.role_type = astra::RoleType::rocket;
+    unit.role_type_raw = "rocket";
+    unit.level = level;
+    unit.attack_range = level == 1 ? 10 : (level == 2 ? 15 : 41);
+    unit.cooldown = 0;
+    return unit;
+}
+
 astra::TurnObservation economy_turn() {
     astra::TurnObservation turn;
     turn.round_no = 10;
@@ -297,4 +308,98 @@ ASTRA_TEST(strategy_runs_task_prompt_without_stopping_worker_economy) {
                          "night task command must reach the sandbox");
     astra::test::require(command_for(command, 10011) == nullptr,
                          "active-task pioneer must not leave the task point at night");
+}
+
+ASTRA_TEST(strategy_builds_distinct_far_rockets_before_worker_economy) {
+    auto turn = economy_turn();
+    turn.map.width = 15;
+    turn.map.height = 15;
+    turn.team_our.gold = 75;
+    turn.team_our.roles = {
+        worker(10010, {12, 10}), worker(10012, {10, 10}), station({10, 8}),
+    };
+
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* first = command_for(decision, 10010);
+    const auto* second = command_for(decision, 10012);
+    astra::test::require(first && second && first->action == "build" &&
+                             second->action == "build",
+                         "two available workers must start two rockets in the same round");
+    astra::test::require(first->name == std::optional<std::string>("rocket") &&
+                             second->name == std::optional<std::string>("rocket"),
+                         "opening weapon builds must both be rockets");
+    const std::set<std::pair<int, int>> targets = {
+        {first->target_positions.front().x, first->target_positions.front().y},
+        {second->target_positions.front().x, second->target_positions.front().y},
+    };
+    astra::test::require(targets == std::set<std::pair<int, int>>{{11, 9}, {12, 9}},
+                         "the two far rocket sites must be built before the near site");
+}
+
+ASTRA_TEST(strategy_moves_worker_off_its_assigned_rocket_site_before_building) {
+    auto turn = economy_turn();
+    turn.map.width = 15;
+    turn.map.height = 15;
+    turn.team_our.roles = {
+        worker(10010, {12, 9}), worker(10012, {10, 10}), station({10, 8}),
+    };
+
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* first = command_for(decision, 10010);
+    const auto* second = command_for(decision, 10012);
+    astra::test::require(first && first->action == "move",
+                         "worker standing on a planned site must step aside first");
+    astra::test::require(second && second->action == "build",
+                         "other worker must still build its distinct rocket site");
+}
+
+ASTRA_TEST(strategy_buys_and_uses_upgrades_on_far_rockets_first) {
+    auto turn = economy_turn();
+    turn.map.width = 15;
+    turn.map.height = 15;
+    turn.team_our.gold = 100;
+    turn.weapon_shop = {{"WeaponUpgradeVoucher1", 100},
+                        {"WeaponUpgradeVoucher2", 150}};
+    turn.map.zones.push_back({{8, 10}, "weaponShop"});
+    turn.team_our.roles = {
+        worker(10010, {9, 10}),
+        station({10, 8}),
+        rocket(10040, {12, 9}, 1),
+        rocket(10041, {11, 9}, 1),
+        rocket(10042, {9, 6}, 1),
+    };
+
+    const auto purchase = astra::BaselineStrategy().decide(turn);
+    const auto* buy = command_for(purchase, 10010);
+    astra::test::require(buy && buy->action == "buy" &&
+                             buy->name == std::optional<std::string>("WeaponUpgradeVoucher1"),
+                         "first upgrade purchase must be a level1 weapon voucher");
+
+    turn.team_our.roles.front().pos = {12, 10};
+    turn.team_our.roles.front().backpack = {"WeaponUpgradeVoucher1"};
+    const auto use_first = astra::BaselineStrategy().decide(turn);
+    const auto* use = command_for(use_first, 10010);
+    astra::test::require(use && use->action == "use" &&
+                             use->target_positions.front().x == 12 &&
+                             use->target_positions.front().y == 9,
+                         "first far rocket must receive the carried voucher");
+
+    turn.team_our.roles[2].level = 2;
+    turn.team_our.roles.front().pos = {10, 10};
+    const auto use_second = astra::BaselineStrategy().decide(turn);
+    use = command_for(use_second, 10010);
+    astra::test::require(use && use->action == "use" &&
+                             use->target_positions.front().x == 11 &&
+                             use->target_positions.front().y == 9,
+                         "second far rocket must reach level2 before the near rocket");
+
+    turn.team_our.roles[3].level = 2;
+    turn.team_our.roles.front().backpack.clear();
+    turn.team_our.roles.front().pos = {9, 10};
+    turn.team_our.gold = 150;
+    const auto tier_two = astra::BaselineStrategy().decide(turn);
+    buy = command_for(tier_two, 10010);
+    astra::test::require(buy && buy->action == "buy" &&
+                             buy->name == std::optional<std::string>("WeaponUpgradeVoucher2"),
+                         "both far rockets must continue toward level3 before upgrading near");
 }

@@ -35,6 +35,7 @@ cd "$project_dir"
 g++ "${common_flags[@]}" "${mode_flags[@]}" \
   src/actions.cpp \
   src/combat.cpp \
+  src/defense.cpp \
   src/http_server.cpp \
   src/json_io.cpp \
   src/main.cpp \
@@ -49,6 +50,7 @@ g++ "${common_flags[@]}" "${mode_flags[@]}" \
 g++ "${common_flags[@]}" "${mode_flags[@]}" \
   src/actions.cpp \
   src/combat.cpp \
+  src/defense.cpp \
   src/json_io.cpp \
   src/navigation.cpp \
   src/protocol.cpp \
@@ -58,6 +60,7 @@ g++ "${common_flags[@]}" "${mode_flags[@]}" \
   tests/test_main.cpp \
   tests/actions_test.cpp \
   tests/combat_test.cpp \
+  tests/defense_test.cpp \
   tests/navigation_test.cpp \
   tests/protocol_test.cpp \
   tests/session_test.cpp \

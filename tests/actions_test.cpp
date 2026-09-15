@@ -95,6 +95,7 @@ ASTRA_TEST(actions_reserve_shared_gold_and_inventory) {
     auto item_turn = turn;
     for (auto& unit : item_turn.team_our.roles) {
         if (unit.id == 10010) unit.backpack = {"WeaponUpgradeVoucher1"};
+        if (unit.id == 10020) unit.level = 1;
     }
     astra::CandidateAction use_one;
     use_one.action_key = 10010;
@@ -135,7 +136,7 @@ ASTRA_TEST(actions_reject_move_target_conflicts_swaps_and_station_footprint) {
     auto station_turn = turn;
     station_turn.team_our.roles.front().pos = {10, 24};
     const auto station =
-        astra::arbitrate(station_turn, {move(10011, {11, 25}, 100)}, {}, {});
+        astra::arbitrate(station_turn, {move(10011, {11, 23}, 100)}, {}, {});
     astra::test::require(station.decision.role_commands.empty(),
                          "all four station footprint cells must block movement");
 }
@@ -198,17 +199,59 @@ ASTRA_TEST(actions_allow_duplicate_rocket_targets_but_require_explicit_cooldown)
                          "active rocket cooldown must be rejected");
 }
 
-ASTRA_TEST(actions_report_missing_fields_before_unsupported_action) {
+ASTRA_TEST(actions_validate_weapon_shop_purchase_and_gold_reservation) {
     const auto turn = action_turn(20);
     astra::CandidateAction buy;
     buy.action_key = 10010;
     buy.command.action = "buy";
-    const auto result = astra::arbitrate(turn, {buy}, {}, {});
-    astra::test::require(result.decision.role_commands.empty(),
-                         "unsupported action must not pass through");
-    astra::test::require(!result.rejected.empty() &&
-                             result.rejected.front().reason.find("name") != std::string::npos,
-                         "missing required field must be reported before unsupported status");
+    buy.command.name = "WeaponUpgradeVoucher1";
+    buy.command.number = 1;
+    buy.reservation.gold = 100;
+
+    auto shop_turn = turn;
+    shop_turn.team_our.gold = 100;
+    shop_turn.weapon_shop = {{"WeaponUpgradeVoucher1", 100}};
+    shop_turn.map.zones.push_back({{8, 25}, "weaponShop"});
+    const auto accepted = astra::arbitrate(shop_turn, {buy}, {}, {});
+    astra::test::require(accepted.decision.role_commands.count(10010) == 1 &&
+                             accepted.gold_reserved() == 100,
+                         "adjacent affordable listed purchase must be accepted");
+
+    buy.reservation.gold = 99;
+    const auto wrong_reservation = astra::arbitrate(shop_turn, {buy}, {}, {});
+    astra::test::require(wrong_reservation.decision.role_commands.empty(),
+                         "purchase must reserve its exact observed price");
+
+    shop_turn.map.zones.clear();
+    buy.reservation.gold = 100;
+    const auto missing_shop = astra::arbitrate(shop_turn, {buy}, {}, {});
+    astra::test::require(missing_shop.decision.role_commands.empty(),
+                         "purchase must require an adjacent observed weapon shop");
+}
+
+ASTRA_TEST(actions_validate_upgrade_voucher_target_and_level) {
+    auto turn = action_turn(20);
+    for (auto& unit : turn.team_our.roles) {
+        if (unit.id == 10010) unit.backpack = {"WeaponUpgradeVoucher1"};
+        if (unit.id == 10020) unit.level = 1;
+    }
+    astra::CandidateAction use;
+    use.action_key = 10010;
+    use.command.action = "use";
+    use.command.name = "WeaponUpgradeVoucher1";
+    use.command.target_positions = {{9, 24}};
+    use.reservation.items[10010]["WeaponUpgradeVoucher1"] = 1;
+
+    const auto accepted = astra::arbitrate(turn, {use}, {}, {});
+    astra::test::require(accepted.decision.role_commands.count(10010) == 1,
+                         "voucher1 must upgrade an adjacent level1 weapon");
+    use.command.target_positions = {{10, 24}};
+    for (auto& unit : turn.team_our.roles) {
+        if (unit.id == 10030) unit.level = 2;
+    }
+    const auto wrong_level = astra::arbitrate(turn, {use}, {}, {});
+    astra::test::require(wrong_level.decision.role_commands.empty(),
+                         "voucher1 must not target a level2 weapon");
 }
 
 ASTRA_TEST(actions_reject_unknown_build_area_and_choose_one_top_level_request) {

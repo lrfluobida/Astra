@@ -74,7 +74,7 @@ ASTRA_TEST(navigation_expands_station_footprint_and_interaction_ring) {
     const auto footprint = astra::occupied_cells(station);
     astra::test::require(footprint.size() == 4, "station must occupy four cells");
     astra::test::require(has_pos(footprint, {2, 2}) && has_pos(footprint, {3, 2}) &&
-                             has_pos(footprint, {2, 3}) && has_pos(footprint, {3, 3}),
+                             has_pos(footprint, {2, 1}) && has_pos(footprint, {3, 1}),
                          "station pos must be expanded from its top-left coordinate");
 
     auto turn = empty_turn(6, 6, {0, 0});

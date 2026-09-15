@@ -18,6 +18,9 @@ ALLOWED_ACTIONS = {
     "acceptTask",
     "attack",
     "submitAnswer",
+    "build",
+    "buy",
+    "use",
 }
 
 
@@ -35,7 +38,7 @@ def validate_response(response, round_no):
                     round_no, actor_id, action
                 )
             )
-        if action in {"move", "collect"}:
+        if action in {"move", "collect", "build", "use"}:
             targets = command.get("targetPos")
             if not isinstance(targets, list) or len(targets) != 1:
                 raise AssertionError("{} requires one targetPos".format(action))
@@ -50,6 +53,10 @@ def validate_response(response, round_no):
         if action == "sell":
             if not isinstance(command.get("name"), str) or command.get("num", 0) <= 0:
                 raise AssertionError("sell requires a name and positive num")
+        if action in {"build", "buy", "use"} and not isinstance(command.get("name"), str):
+            raise AssertionError("{} requires a name".format(action))
+        if action == "buy" and command.get("num", 0) <= 0:
+            raise AssertionError("buy requires a positive num")
         if action == "attack":
             controller = command.get("controllerId")
             targets = command.get("targetPos")

@@ -92,10 +92,7 @@ def run_server(command, fixture):
             json.dumps(fixture, ensure_ascii=False).encode("utf-8"),
         )
         worker_command = first.get("roleCommandMap", {}).get("10010")
-        if worker_command != {
-            "action": "collect",
-            "targetPos": [{"x": 8, "y": 25}],
-        }:
+        if not worker_command or worker_command.get("action") not in {"move", "build"}:
             raise AssertionError("strategy was not used by HTTP entrypoint: {!r}".format(first))
 
         repeated = post(
@@ -113,7 +110,8 @@ def run_server(command, fixture):
             "/act",
             json.dumps(fixture, ensure_ascii=False).encode("utf-8"),
         )
-        if second.get("roleCommandMap", {}).get("10010", {}).get("action") != "collect":
+        second_worker = second.get("roleCommandMap", {}).get("10010", {})
+        if second_worker.get("action") not in {"move", "build"}:
             raise AssertionError("strategy did not advance on the second round: {!r}".format(second))
 
         invalid = post(port, "/act", b"{invalid json")
@@ -136,7 +134,8 @@ def run_server(command, fixture):
             "/act",
             json.dumps(fixture, ensure_ascii=False).encode("utf-8"),
         )
-        if recovered.get("roleCommandMap", {}).get("10010", {}).get("action") != "collect":
+        recovered_worker = recovered.get("roleCommandMap", {}).get("10010", {})
+        if recovered_worker.get("action") not in {"move", "build"}:
             raise AssertionError("server did not recover after invalid JSON")
 
         night = copy.deepcopy(fixture)

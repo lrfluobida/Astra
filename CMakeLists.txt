@@ -12,6 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(ASTRA_SOURCES
     src/actions.cpp
     src/combat.cpp
+    src/defense.cpp
     src/http_server.cpp
     src/json_io.cpp
     src/main.cpp

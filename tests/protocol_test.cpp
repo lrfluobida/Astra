@@ -45,8 +45,8 @@ ASTRA_TEST(protocol_parses_minimal_turn_and_preserves_raw_input) {
         return false;
     };
     astra::test::require(station_cells.size() == 4 && has_station_cell({10, 24}) &&
-                             has_station_cell({11, 24}) && has_station_cell({10, 25}) &&
-                             has_station_cell({11, 25}),
+                             has_station_cell({11, 24}) && has_station_cell({10, 23}) &&
+                             has_station_cell({11, 23}),
                          "station pos must be interpreted as the 2x2 top-left coordinate");
 }
 

@@ -53,8 +53,8 @@ bool in_bounds(const TurnObservation& turn, const Pos& pos) {
 
 bool building_covers(const UnitObservation& unit, const Pos& pos) {
     if (unit.role_type == RoleType::station) {
-        return pos.x >= unit.pos.x && pos.x <= unit.pos.x + 1 && pos.y >= unit.pos.y &&
-               pos.y <= unit.pos.y + 1;
+        return pos.x >= unit.pos.x && pos.x <= unit.pos.x + 1 &&
+               pos.y >= unit.pos.y - 1 && pos.y <= unit.pos.y;
     }
     return !is_character(unit) && same_pos(unit.pos, pos);
 }
@@ -199,6 +199,57 @@ std::string validate_use(const TurnObservation& turn, const CandidateAction& can
     if (owner == candidate.reservation.items.end()) return "use must reserve its item";
     const auto item = owner->second.find(*candidate.command.name);
     if (item == owner->second.end() || item->second != 1) return "use must reserve one named item";
+    const bool voucher1 = *candidate.command.name == "WeaponUpgradeVoucher1";
+    const bool voucher2 = *candidate.command.name == "WeaponUpgradeVoucher2";
+    if (voucher1 || voucher2) {
+        if (candidate.command.target_positions.size() != 1) {
+            return "weapon upgrade voucher requires one targetPos";
+        }
+        const Pos target = candidate.command.target_positions.front();
+        if (distance(actor->pos, target) > 1) {
+            return "weapon upgrade target is not adjacent";
+        }
+        const auto* weapon = static_cast<const UnitObservation*>(nullptr);
+        for (const auto& unit : turn.team_our.roles) {
+            if (is_weapon(unit) && same_pos(unit.pos, target)) {
+                weapon = &unit;
+                break;
+            }
+        }
+        const int required_level = voucher1 ? 1 : 2;
+        if (!weapon || !weapon->level || *weapon->level != required_level) {
+            return "weapon upgrade voucher does not match target level";
+        }
+    }
+    return "";
+}
+
+std::string validate_buy(const TurnObservation& turn, const CandidateAction& candidate) {
+    const auto* actor = find_own_unit(turn, candidate.action_key);
+    if (!alive(actor) || !is_character(*actor)) return "buy actor is not a living character";
+    if (!candidate.command.name) return "buy requires name";
+    const int quantity = candidate.command.number.value_or(1);
+    if (quantity <= 0) return "buy num must be positive";
+    const bool beside_shop = std::any_of(turn.map.zones.begin(), turn.map.zones.end(),
+                                         [&](const ZoneObservation& zone) {
+                                             return zone.neutral_type == "weaponShop" &&
+                                                    distance(actor->pos, zone.pos) <= 1;
+                                         });
+    if (!beside_shop) return "buy actor is not adjacent to an observed weapon shop";
+    const auto listing = std::find_if(turn.weapon_shop.begin(), turn.weapon_shop.end(),
+                                      [&](const ShopItemObservation& item) {
+                                          return item.name == *candidate.command.name &&
+                                                 item.price >= 0;
+                                      });
+    if (listing == turn.weapon_shop.end()) return "buy item is not in the observed weapon shop";
+    if (!actor->backpack_capacity || *actor->backpack_capacity <= 0 ||
+        actor->backpack.size() + static_cast<std::size_t>(quantity) >
+            static_cast<std::size_t>(*actor->backpack_capacity)) {
+        return "buy quantity exceeds actor backpack capacity";
+    }
+    if (candidate.reservation.gold != listing->price * quantity) {
+        return "buy reservation must match observed price and quantity";
+    }
     return "";
 }
 
@@ -299,6 +350,7 @@ std::string validate_action(const TurnObservation& turn,
     }
     if (candidate.command.action == "build") return validate_build(turn, candidate, rules);
     if (candidate.command.action == "use") return validate_use(turn, candidate);
+    if (candidate.command.action == "buy") return validate_buy(turn, candidate);
     if (candidate.command.action == "submitAnswer") return validate_submit(turn, candidate);
     if (candidate.command.action == "collect") return validate_collect(turn, candidate);
     if (candidate.command.action == "sell") return validate_sell(turn, candidate);
@@ -322,8 +374,7 @@ std::string validate_action(const TurnObservation& turn,
     }
     if (action == "drop" && !candidate.command.name) return "drop requires name";
 
-    static const std::set<std::string> defined_actions = {
-        "buy", "remove", "summonTreasure", "drop"};
+    static const std::set<std::string> defined_actions = {"remove", "summonTreasure", "drop"};
     if (defined_actions.count(action) != 0) {
         return "defined action is not supported by this arbitration stage";
     }

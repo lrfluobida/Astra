@@ -2,6 +2,7 @@
 
 #include "actions.hpp"
 #include "combat.hpp"
+#include "defense.hpp"
 #include "navigation.hpp"
 #include "task_solver.hpp"
 
@@ -30,6 +31,70 @@ int mineral_rank(const std::string& name) {
 
 bool is_character(const UnitObservation& unit) {
     return unit.role_type == RoleType::worker || unit.role_type == RoleType::pioneer;
+}
+
+bool same_pos(const Pos& left, const Pos& right) {
+    return left.x == right.x && left.y == right.y;
+}
+
+bool building_at(const TurnObservation& turn, const Pos& target) {
+    const auto found = [&](const UnitObservation& unit) {
+        return !is_character(unit) && unit.role_type != RoleType::station &&
+               same_pos(unit.pos, target);
+    };
+    return std::any_of(turn.team_our.roles.begin(), turn.team_our.roles.end(), found) ||
+           std::any_of(turn.team_enemy.begin(), turn.team_enemy.end(), found);
+}
+
+const UnitObservation* weapon_at(const TurnObservation& turn, const Pos& target) {
+    for (const auto& unit : turn.team_our.roles) {
+        if (unit.role_type == RoleType::rocket && same_pos(unit.pos, target)) return &unit;
+    }
+    return nullptr;
+}
+
+bool has_item(const UnitObservation& unit, const std::string& name) {
+    return std::find(unit.backpack.begin(), unit.backpack.end(), name) != unit.backpack.end();
+}
+
+const ZoneObservation* first_weapon_shop(const TurnObservation& turn) {
+    for (const auto& zone : turn.map.zones) {
+        if (zone.neutral_type == "weaponShop") return &zone;
+    }
+    return nullptr;
+}
+
+std::optional<int> shop_price(const TurnObservation& turn, const std::string& name) {
+    for (const auto& item : turn.weapon_shop) {
+        if (item.name == name && item.price >= 0) return item.price;
+    }
+    return std::nullopt;
+}
+
+struct UpgradeTarget {
+    Pos pos;
+    std::string voucher;
+};
+
+std::optional<UpgradeTarget> choose_upgrade_target(const TurnObservation& turn,
+                                                   const DefenseLayout& layout) {
+    for (const int level : {1, 2}) {
+        for (const auto& pos : layout.far_rockets) {
+            const auto* weapon = weapon_at(turn, pos);
+            if (weapon && weapon->level == std::optional<int>(level)) {
+                return UpgradeTarget{pos,
+                                     level == 1 ? "WeaponUpgradeVoucher1"
+                                                : "WeaponUpgradeVoucher2"};
+            }
+        }
+    }
+    const auto* near = weapon_at(turn, layout.near_rocket);
+    if (near && near->level && *near->level >= 1 && *near->level < 3) {
+        return UpgradeTarget{layout.near_rocket,
+                             *near->level == 1 ? "WeaponUpgradeVoucher1"
+                                               : "WeaponUpgradeVoucher2"};
+    }
+    return std::nullopt;
 }
 
 std::map<std::string, int> positive_prices(const TurnObservation& turn) {
@@ -258,6 +323,82 @@ std::optional<CandidateAction> return_move(const TurnObservation& turn,
     return candidate;
 }
 
+std::optional<CandidateAction> rocket_build_action(
+    const TurnObservation& turn,
+    const UnitObservation& worker,
+    Pos target,
+    const NavigationReservations& reservations,
+    int priority) {
+    if (distance(worker.pos, target) == 1) {
+        CandidateAction candidate;
+        candidate.action_key = worker.id;
+        candidate.command.action = "build";
+        candidate.command.name = "rocket";
+        candidate.command.target_positions = {target};
+        candidate.reservation.gold = 25;
+        candidate.priority = priority;
+        candidate.source = "defense.build_rocket";
+        return candidate;
+    }
+    const auto path = next_step_toward_any(
+        turn, worker.id, interaction_cells(turn, target), reservations);
+    if (!path || path->distance == 0) return std::nullopt;
+    auto candidate = move_candidate(worker, path->next, priority);
+    candidate.source = "defense.move_to_rocket_site";
+    return candidate;
+}
+
+std::optional<CandidateAction> rocket_upgrade_action(
+    const TurnObservation& turn,
+    const UnitObservation& worker,
+    const UpgradeTarget& target,
+    const NavigationReservations& reservations,
+    int priority) {
+    if (has_item(worker, target.voucher)) {
+        if (distance(worker.pos, target.pos) <= 1) {
+            CandidateAction candidate;
+            candidate.action_key = worker.id;
+            candidate.command.action = "use";
+            candidate.command.name = target.voucher;
+            candidate.command.target_positions = {target.pos};
+            candidate.reservation.items[worker.id][target.voucher] = 1;
+            candidate.priority = priority;
+            candidate.source = "defense.upgrade_rocket";
+            return candidate;
+        }
+        const auto path = next_step_toward_any(
+            turn, worker.id, interaction_cells(turn, target.pos), reservations);
+        if (!path || path->distance == 0) return std::nullopt;
+        auto candidate = move_candidate(worker, path->next, priority);
+        candidate.source = "defense.move_to_upgrade_target";
+        return candidate;
+    }
+
+    const auto price = shop_price(turn, target.voucher);
+    const auto* shop = first_weapon_shop(turn);
+    if (!price || !shop || turn.team_our.gold < *price || !worker.backpack_capacity ||
+        worker.backpack.size() >= static_cast<std::size_t>(*worker.backpack_capacity)) {
+        return std::nullopt;
+    }
+    if (distance(worker.pos, shop->pos) <= 1) {
+        CandidateAction candidate;
+        candidate.action_key = worker.id;
+        candidate.command.action = "buy";
+        candidate.command.name = target.voucher;
+        candidate.command.number = 1;
+        candidate.reservation.gold = *price;
+        candidate.priority = priority;
+        candidate.source = "defense.buy_upgrade";
+        return candidate;
+    }
+    const auto path = next_step_toward_any(
+        turn, worker.id, interaction_cells(turn, shop->pos), reservations);
+    if (!path || path->distance == 0) return std::nullopt;
+    auto candidate = move_candidate(worker, path->next, priority);
+    candidate.source = "defense.move_to_weapon_shop";
+    return candidate;
+}
+
 void reserve_move(const UnitObservation& actor,
                   const CandidateAction& candidate,
                   NavigationReservations& reservations) {
@@ -302,6 +443,19 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     const int round_in_day = (turn.round_no - 1) % 130 + 1;
     const TaskCandidates task = task_candidates(turn, 4000);
     const auto prices = positive_prices(turn);
+    const auto defense_layout = derive_defense_layout(turn);
+    std::vector<Pos> missing_rocket_sites;
+    if (defense_layout) {
+        for (const auto& target : {defense_layout->far_rockets[0],
+                                   defense_layout->far_rockets[1],
+                                   defense_layout->near_rocket}) {
+            if (!building_at(turn, target)) missing_rocket_sites.push_back(target);
+        }
+    }
+    std::optional<UpgradeTarget> upgrade_target;
+    if (defense_layout && missing_rocket_sites.empty()) {
+        upgrade_target = choose_upgrade_target(turn, *defense_layout);
+    }
     std::vector<const UnitObservation*> characters;
     for (const auto& unit : turn.team_our.roles) {
         if (is_character(unit) && unit.health && *unit.health > 0) {
@@ -315,11 +469,30 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         if (left->role_type != right->role_type) return left->role_type == RoleType::worker;
         return left->id < right->id;
     });
+    std::optional<int> upgrade_actor;
+    if (upgrade_target) {
+        for (const auto* actor : characters) {
+            if (actor->role_type == RoleType::worker && has_item(*actor, upgrade_target->voucher)) {
+                upgrade_actor = actor->id;
+                break;
+            }
+        }
+        if (!upgrade_actor) {
+            for (const auto* actor : characters) {
+                if (actor->role_type == RoleType::worker) {
+                    upgrade_actor = actor->id;
+                    break;
+                }
+            }
+        }
+    }
 
     std::vector<CandidateAction> candidates = task.actions;
     const auto combat = combat_candidates(turn, 3000);
     candidates.insert(candidates.end(), combat.begin(), combat.end());
     NavigationReservations reservations;
+    reservations.destinations = missing_rocket_sites;
+    std::size_t defense_index = 0;
     int priority = 1000;
     for (const auto* actor : characters) {
         std::optional<CandidateAction> candidate;
@@ -336,7 +509,22 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
             } else if (station_interaction_cells(turn).empty() && daylight_remaining <= 2) {
                 candidate = std::nullopt;
             } else {
-                candidate = adjacent_sell(turn, *actor, prices, priority);
+                if (defense_index < missing_rocket_sites.size()) {
+                    candidate = rocket_build_action(turn,
+                                                    *actor,
+                                                    missing_rocket_sites[defense_index],
+                                                    reservations,
+                                                    priority);
+                    ++defense_index;
+                }
+                if (!candidate && upgrade_target && upgrade_actor == actor->id) {
+                    candidate = rocket_upgrade_action(turn,
+                                                      *actor,
+                                                      *upgrade_target,
+                                                      reservations,
+                                                      priority);
+                }
+                if (!candidate) candidate = adjacent_sell(turn, *actor, prices, priority);
                 if (!candidate) candidate = adjacent_collect(turn, *actor, prices, priority);
                 if (!candidate) {
                     candidate = economic_move(turn, *actor, prices, reservations, priority);
@@ -360,7 +548,12 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         candidates.push_back(std::move(*candidate));
         --priority;
     }
-    return arbitrate(turn, candidates, task.top_level, task.rules).decision;
+    ArbitrationRules rules = task.rules;
+    if (defense_layout) {
+        rules.weapon_build_tiles = defense_layout->weapon_build_tiles;
+        rules.wall_build_tiles = defense_layout->wall_build_tiles;
+    }
+    return arbitrate(turn, candidates, task.top_level, rules).decision;
 }
 
 }  // namespace astra

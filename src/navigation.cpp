@@ -59,8 +59,8 @@ std::vector<Pos> occupied_cells(const UnitObservation& unit) {
     if (unit.role_type == RoleType::station) {
         return {{unit.pos.x, unit.pos.y},
                 {unit.pos.x + 1, unit.pos.y},
-                {unit.pos.x, unit.pos.y + 1},
-                {unit.pos.x + 1, unit.pos.y + 1}};
+                {unit.pos.x, unit.pos.y - 1},
+                {unit.pos.x + 1, unit.pos.y - 1}};
     }
     return {unit.pos};
 }
@@ -88,11 +88,11 @@ std::vector<Pos> station_interaction_cells(const TurnObservation& turn) {
     if (!station) return {};
 
     std::vector<Pos> result;
-    for (int y = station->pos.y - 1; y <= station->pos.y + 2; ++y) {
+    for (int y = station->pos.y - 2; y <= station->pos.y + 1; ++y) {
         for (int x = station->pos.x - 1; x <= station->pos.x + 2; ++x) {
             const Pos candidate{x, y};
             const bool inside_station = x >= station->pos.x && x <= station->pos.x + 1 &&
-                                        y >= station->pos.y && y <= station->pos.y + 1;
+                                        y >= station->pos.y - 1 && y <= station->pos.y;
             if (!inside_station && in_bounds(turn, candidate)) result.push_back(candidate);
         }
     }
