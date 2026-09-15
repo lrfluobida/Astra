@@ -28,4 +28,4 @@
 - [x] Update README, context, and ADR.
 - [x] Verify UTF-8 rendering.
 - [x] Run Debug, Release, Sanitizer, HTTP, 1300-round replay, and package checks.
-- [ ] Regenerate the archive, commit, and push.
+- [x] Regenerate the archive, commit, and push.
