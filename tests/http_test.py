@@ -33,6 +33,31 @@ def post(port, path, body):
         return json.loads(response.read().decode("utf-8"))
 
 
+def fragmented_post(port, path, body):
+    header = (
+        "POST {} HTTP/1.0\r\n"
+        "Host: 127.0.0.1\r\n"
+        "Content-Type: application/json; charset=utf-8\r\n"
+        "Content-Length: {}\r\n\r\n"
+    ).format(path, len(body)).encode("ascii")
+    chunks = [header[:9], header[9:], body[:1], body[1:17], body[17:]]
+    with socket.create_connection(("127.0.0.1", port), timeout=2.0) as sock:
+        for chunk in chunks:
+            if chunk:
+                sock.sendall(chunk)
+                time.sleep(0.005)
+        response = bytearray()
+        while True:
+            data = sock.recv(8192)
+            if not data:
+                break
+            response.extend(data)
+    header_bytes, response_body = bytes(response).split(b"\r\n\r\n", 1)
+    if not header_bytes.startswith(b"HTTP/1.0 200"):
+        raise AssertionError("fragmented request failed: {!r}".format(header_bytes))
+    return json.loads(response_body.decode("utf-8"))
+
+
 def wait_until_ready(process, port):
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
@@ -61,7 +86,7 @@ def run_server(command, fixture):
     try:
         wait_until_ready(process, port)
 
-        first = post(
+        first = fragmented_post(
             port,
             "/",
             json.dumps(fixture, ensure_ascii=False).encode("utf-8"),

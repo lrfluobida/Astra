@@ -1,7 +1,7 @@
+#include "http_server.hpp"
+#include "json_io.hpp"
 #include "session.hpp"
 #include "strategy.hpp"
-
-#include <httplib.h>
 
 #include <fstream>
 #include <iostream>
@@ -11,13 +11,13 @@
 
 namespace {
 
-nlohmann::json conservative_response() {
+Json::Value conservative_response() {
     return astra::encode_response(astra::Decision{});
 }
 
-nlohmann::json decide_request(astra::AgentSession& session,
-                              const astra::BaselineStrategy& strategy,
-                              const nlohmann::json& input) {
+Json::Value decide_request(astra::AgentSession& session,
+                           const astra::BaselineStrategy& strategy,
+                           const Json::Value& input) {
     const auto parsed = astra::parse_turn(input);
     if (!parsed.turn || !parsed.errors.empty()) return conservative_response();
     return session.handle(input, strategy.decide(*parsed.turn));
@@ -53,13 +53,14 @@ int replay(const std::string& path) {
     int line_number = 0;
     while (std::getline(*input, line)) {
         ++line_number;
-        try {
-            const auto request = nlohmann::json::parse(line);
-            std::cout << decide_request(session, strategy, request).dump() << '\n' << std::flush;
-        } catch (const nlohmann::json::exception& error) {
-            std::cerr << "invalid replay JSON at line " << line_number << ": " << error.what()
-                      << '\n';
-            std::cout << conservative_response().dump() << '\n' << std::flush;
+        Json::Value request;
+        std::string error;
+        if (astra::parse_json(line, request, error)) {
+            std::cout << astra::write_json(decide_request(session, strategy, request)) << '\n'
+                      << std::flush;
+        } else {
+            std::cerr << "invalid replay JSON at line " << line_number << ": " << error << '\n';
+            std::cout << astra::write_json(conservative_response()) << '\n' << std::flush;
         }
     }
     return 0;
@@ -69,28 +70,21 @@ int serve(int port) {
     astra::AgentSession session;
     const astra::BaselineStrategy strategy;
     std::mutex session_mutex;
-    httplib::Server server;
-
-    const auto handler = [&](const httplib::Request& request, httplib::Response& response) {
-        nlohmann::json decision;
-        try {
-            const auto input = nlohmann::json::parse(request.body);
+    const auto handler = [&](const std::string& body) {
+        Json::Value decision;
+        Json::Value input;
+        std::string error;
+        if (astra::parse_json(body, input, error)) {
             std::lock_guard<std::mutex> lock(session_mutex);
             decision = decide_request(session, strategy, input);
-        } catch (const nlohmann::json::exception& error) {
-            std::cerr << "invalid request JSON: " << error.what() << '\n';
-            decision = conservative_response();
-        } catch (const std::exception& error) {
-            std::cerr << "request handling error: " << error.what() << '\n';
+        } else {
+            std::cerr << "invalid request JSON: " << error << '\n';
             decision = conservative_response();
         }
-        response.status = 200;
-        response.set_content(decision.dump(), "application/json; charset=utf-8");
+        return astra::write_json(decision);
     };
 
-    server.Post(R"(/.*)", handler);
-    std::cerr << "Astra listening on 0.0.0.0:" << port << '\n';
-    if (!server.listen("0.0.0.0", port)) {
+    if (astra::serve_http(port, handler) != 0) {
         std::cerr << "failed to listen on port " << port << '\n';
         return 3;
     }

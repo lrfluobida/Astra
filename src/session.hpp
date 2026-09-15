@@ -38,8 +38,8 @@ public:
     AgentSession();
     explicit AgentSession(ClockFunction clock);
 
-    nlohmann::json handle(const nlohmann::json& input, Decision proposed = {});
-    nlohmann::json handle_with_budget(const nlohmann::json& input,
+    Json::Value handle(const Json::Value& input, Decision proposed = {});
+    Json::Value handle_with_budget(const Json::Value& input,
                                       Decision baseline,
                                       std::chrono::milliseconds budget,
                                       const SearchFunction& search);
@@ -57,8 +57,8 @@ private:
     std::optional<int> active_task_serial_;
     std::optional<int> pending_accept_actor_;
     std::optional<int> pending_accept_round_;
-    nlohmann::json last_request_;
-    nlohmann::json last_response_;
+    Json::Value last_request_;
+    Json::Value last_response_;
     ClockFunction clock_;
 };
 

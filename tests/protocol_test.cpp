@@ -2,15 +2,12 @@
 #include "navigation.hpp"
 #include "test_support.hpp"
 
-#include <fstream>
 #include <string>
 
 namespace {
 
-nlohmann::json load_fixture() {
-    std::ifstream input("tests/fixtures/minimal_turn.json");
-    astra::test::require(input.good(), "minimal_turn.json must be readable");
-    return nlohmann::json::parse(input);
+Json::Value load_fixture() {
+    return astra::test::load_json_file("tests/fixtures/minimal_turn.json");
 }
 
 const astra::UnitObservation& find_unit(const astra::TurnObservation& turn, int id) {
@@ -55,7 +52,7 @@ ASTRA_TEST(protocol_parses_minimal_turn_and_preserves_raw_input) {
 
 ASTRA_TEST(protocol_rejects_missing_position_without_inventing_origin) {
     auto input = load_fixture();
-    input["teamOur"]["roles"][1].erase("pos");
+    input["teamOur"]["roles"][1].removeMember("pos");
 
     const auto result = astra::parse_turn(input);
 
@@ -69,13 +66,9 @@ ASTRA_TEST(protocol_rejects_missing_position_without_inventing_origin) {
 
 ASTRA_TEST(protocol_keeps_unknown_role_non_controllable_and_ignores_unknown_fields) {
     auto input = load_fixture();
-    input["futureTopLevelField"] = {"enabled", true};
-    input["teamOur"]["roles"].push_back({
-        {"id", 10999},
-        {"pos", {{"x", 4}, {"y", 5}}},
-        {"roleType", "futureDrone"},
-        {"health", 10},
-    });
+    input["futureTopLevelField"]["enabled"] = true;
+    input["teamOur"]["roles"].append(astra::test::parse_json_text(
+        R"({"id":10999,"pos":{"x":4,"y":5},"roleType":"futureDrone","health":10})"));
 
     const auto result = astra::parse_turn(input);
 
@@ -84,19 +77,14 @@ ASTRA_TEST(protocol_keeps_unknown_role_non_controllable_and_ignores_unknown_fiel
     astra::test::require(unknown.role_type == astra::RoleType::unknown,
                          "unknown role type must remain unknown");
     astra::test::require(!unknown.controllable(), "unknown role type must not be controllable");
-    astra::test::require(result.turn->raw.contains("futureTopLevelField"),
+    astra::test::require(result.turn->raw.isMember("futureTopLevelField"),
                          "unknown field must remain available in raw JSON");
 }
 
 ASTRA_TEST(protocol_represents_missing_documented_values_as_unknown) {
     auto input = load_fixture();
-    input["robot"]["roles"].push_back({
-        {"id", 30001},
-        {"pos", {{"x", 4}, {"y", 4}}},
-        {"roleType", "smallRobot"},
-        {"health", 40},
-        {"abnormalState", ""},
-    });
+    input["robot"]["roles"].append(astra::test::parse_json_text(
+        R"({"id":30001,"pos":{"x":4,"y":4},"roleType":"smallRobot","health":40,"abnormalState":""})"));
 
     const auto result = astra::parse_turn(input);
 
@@ -111,8 +99,7 @@ ASTRA_TEST(protocol_represents_missing_documented_values_as_unknown) {
 
 ASTRA_TEST(protocol_encodes_empty_and_attack_responses) {
     astra::Decision empty;
-    astra::test::require(astra::encode_response(empty) ==
-                             nlohmann::json{{"roleCommandMap", nlohmann::json::object()}},
+    astra::test::require(astra::encode_response(empty) == astra::test::empty_response(),
                          "empty decision must encode as a valid empty response");
 
     astra::RoleCommand attack;
@@ -125,15 +112,15 @@ ASTRA_TEST(protocol_encodes_empty_and_attack_responses) {
     decision.prompt = "分析中文战报";
     const auto encoded = astra::encode_response(decision);
 
-    astra::test::require(encoded["roleCommandMap"].contains("10020"),
+    astra::test::require(encoded["roleCommandMap"].isMember("10020"),
                          "role ID must be encoded as an object key string");
     astra::test::require(encoded["roleCommandMap"]["10020"]["controllerId"] == "10010",
                          "attack controller ID must be preserved");
-    astra::test::require(encoded["roleCommandMap"]["10020"]["targetPos"][0] ==
-                             nlohmann::json{{"x", 29}, {"y", 7}},
+    astra::test::require(encoded["roleCommandMap"]["10020"]["targetPos"][0]["x"] == 29 &&
+                             encoded["roleCommandMap"]["10020"]["targetPos"][0]["y"] == 7,
                          "attack target must be preserved");
-    astra::test::require(!encoded.contains("executeCmd"),
+    astra::test::require(!encoded.isMember("executeCmd"),
                          "unused executeCmd must be omitted");
-    astra::test::require(encoded.dump().find("分析中文战报") != std::string::npos,
+    astra::test::require(astra::write_json(encoded).find("分析中文战报") != std::string::npos,
                          "UTF-8 response text must not be escaped or corrupted");
 }

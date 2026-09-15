@@ -1,12 +1,11 @@
 #include "task_solver.hpp"
+#include "json_io.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <optional>
 #include <sstream>
 #include <string>
-
-#include <nlohmann/json.hpp>
 
 namespace astra {
 namespace {
@@ -98,8 +97,8 @@ struct ModelResult {
     std::string value;
 };
 
-std::string answer_text(const nlohmann::json& answer) {
-    return answer.is_string() ? answer.get<std::string>() : answer.dump();
+std::string answer_text(const Json::Value& answer) {
+    return answer.isString() ? answer.asString() : write_json(answer);
 }
 
 ModelResult parse_model_result(const std::string& raw) {
@@ -114,26 +113,27 @@ ModelResult parse_model_result(const std::string& raw) {
         return {ModelResultKind::malformed, response};
     }
 
-    try {
-        const auto parsed =
-            nlohmann::json::parse(response.substr(first_brace, last_brace - first_brace + 1));
-        if (!parsed.is_object()) return {ModelResultKind::malformed, response};
-        const std::string kind = parsed.value("kind", "");
-        if ((kind == "answer" || kind.empty()) && parsed.contains("answer") &&
-            !parsed["answer"].is_null()) {
+    Json::Value parsed;
+    std::string error;
+    if (parse_json(response.substr(first_brace, last_brace - first_brace + 1), parsed, error)) {
+        if (!parsed.isObject()) return {ModelResultKind::malformed, response};
+        const std::string kind = parsed.isMember("kind") && parsed["kind"].isString()
+                                     ? parsed["kind"].asString()
+                                     : "";
+        if ((kind == "answer" || kind.empty()) && parsed.isMember("answer") &&
+            !parsed["answer"].isNull()) {
             const std::string answer = trim(answer_text(parsed["answer"]));
             return answer.empty() ? ModelResult{ModelResultKind::malformed, response}
                                   : ModelResult{ModelResultKind::answer, answer};
         }
-        if ((kind == "command" || kind.empty()) && parsed.contains("command") &&
-            parsed["command"].is_string()) {
-            const std::string command = trim(parsed["command"].get<std::string>());
+        if ((kind == "command" || kind.empty()) && parsed.isMember("command") &&
+            parsed["command"].isString()) {
+            const std::string command = trim(parsed["command"].asString());
             if (!command.empty() && command.size() <= kMaximumCommandLength &&
                 command.find('\0') == std::string::npos) {
                 return {ModelResultKind::command, command};
             }
         }
-    } catch (const nlohmann::json::exception&) {
     }
     return {ModelResultKind::malformed, response};
 }

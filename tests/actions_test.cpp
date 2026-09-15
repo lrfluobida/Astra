@@ -1,26 +1,20 @@
 #include "actions.hpp"
 #include "test_support.hpp"
 
-#include <fstream>
 #include <string>
 
 namespace {
 
 astra::TurnObservation action_turn(int round = 71, int gold = 75) {
-    std::ifstream input("tests/fixtures/minimal_turn.json");
-    astra::test::require(input.good(), "minimal_turn.json must be readable");
-    auto json = nlohmann::json::parse(input);
+    auto json = astra::test::load_json_file("tests/fixtures/minimal_turn.json");
     json["roundNo"] = round;
     json["teamOur"]["goldNum"] = gold;
-    json["teamOur"]["roles"][0]["pos"] = {{"x", 20}, {"y", 20}};
-    json["teamOur"]["roles"].push_back({
-        {"id", 10020}, {"pos", {{"x", 9}, {"y", 24}}}, {"roleType", "gatling"},
-        {"health", 1000}, {"attackRange", 5}, {"level", 2}, {"cooldown", 0},
-    });
-    json["teamOur"]["roles"].push_back({
-        {"id", 10030}, {"pos", {{"x", 10}, {"y", 24}}}, {"roleType", "railgun"},
-        {"health", 1000}, {"attackRange", 6}, {"level", 1}, {"cooldown", 0},
-    });
+    json["teamOur"]["roles"][0]["pos"]["x"] = 20;
+    json["teamOur"]["roles"][0]["pos"]["y"] = 20;
+    json["teamOur"]["roles"].append(astra::test::parse_json_text(
+        R"({"id":10020,"pos":{"x":9,"y":24},"roleType":"gatling","health":1000,"attackRange":5,"level":2,"cooldown":0})"));
+    json["teamOur"]["roles"].append(astra::test::parse_json_text(
+        R"({"id":10030,"pos":{"x":10,"y":24},"roleType":"railgun","health":1000,"attackRange":6,"level":1,"cooldown":0})"));
     const auto parsed = astra::parse_turn(json);
     astra::test::require(parsed.turn.has_value() && parsed.errors.empty(),
                          "action fixture must parse");

@@ -6,44 +6,69 @@ namespace astra {
 namespace {
 
 template <typename T>
-std::optional<T> required(const nlohmann::json& object,
+struct JsonConversion;
+
+template <>
+struct JsonConversion<int> {
+    static bool valid(const Json::Value& value) { return value.isInt(); }
+    static int get(const Json::Value& value) { return value.asInt(); }
+};
+
+template <>
+struct JsonConversion<bool> {
+    static bool valid(const Json::Value& value) { return value.isBool(); }
+    static bool get(const Json::Value& value) { return value.asBool(); }
+};
+
+template <>
+struct JsonConversion<std::string> {
+    static bool valid(const Json::Value& value) { return value.isString(); }
+    static std::string get(const Json::Value& value) { return value.asString(); }
+};
+
+template <>
+struct JsonConversion<Json::Value> {
+    static bool valid(const Json::Value&) { return true; }
+    static Json::Value get(const Json::Value& value) { return value; }
+};
+
+template <typename T>
+std::optional<T> required(const Json::Value& object,
                           const char* key,
                           const std::string& path,
                           std::vector<std::string>& errors) {
-    const auto found = object.find(key);
-    if (found == object.end()) {
+    if (!object.isObject() || !object.isMember(key)) {
         errors.push_back(path + "." + key + " is required");
         return std::nullopt;
     }
-    try {
-        return found->get<T>();
-    } catch (const nlohmann::json::exception&) {
+    const Json::Value& value = object[key];
+    if (!JsonConversion<T>::valid(value)) {
         errors.push_back(path + "." + key + " has an invalid type");
         return std::nullopt;
     }
+    return JsonConversion<T>::get(value);
 }
 
 template <typename T>
-std::optional<T> optional_value(const nlohmann::json& object,
+std::optional<T> optional_value(const Json::Value& object,
                                 const char* key,
                                 const std::string& path,
                                 std::vector<std::string>& errors) {
-    const auto found = object.find(key);
-    if (found == object.end() || found->is_null()) {
+    if (!object.isObject() || !object.isMember(key) || object[key].isNull()) {
         return std::nullopt;
     }
-    try {
-        return found->get<T>();
-    } catch (const nlohmann::json::exception&) {
+    const Json::Value& value = object[key];
+    if (!JsonConversion<T>::valid(value)) {
         errors.push_back(path + "." + key + " has an invalid type");
         return std::nullopt;
     }
+    return JsonConversion<T>::get(value);
 }
 
-std::optional<Pos> parse_pos(const nlohmann::json& value,
+std::optional<Pos> parse_pos(const Json::Value& value,
                              const std::string& path,
                              std::vector<std::string>& errors) {
-    if (!value.is_object()) {
+    if (!value.isObject()) {
         errors.push_back(path + " must be an object");
         return std::nullopt;
     }
@@ -55,16 +80,15 @@ std::optional<Pos> parse_pos(const nlohmann::json& value,
     return Pos{*x, *y};
 }
 
-std::optional<Pos> required_pos(const nlohmann::json& object,
+std::optional<Pos> required_pos(const Json::Value& object,
                                 const char* key,
                                 const std::string& path,
                                 std::vector<std::string>& errors) {
-    const auto found = object.find(key);
-    if (found == object.end()) {
+    if (!object.isObject() || !object.isMember(key)) {
         errors.push_back(path + "." + key + " is required");
         return std::nullopt;
     }
-    return parse_pos(*found, path + "." + key, errors);
+    return parse_pos(object[key], path + "." + key, errors);
 }
 
 RoleType parse_role_type(const std::string& value) {
@@ -78,11 +102,11 @@ RoleType parse_role_type(const std::string& value) {
     return RoleType::unknown;
 }
 
-std::optional<UnitObservation> parse_unit(const nlohmann::json& value,
+std::optional<UnitObservation> parse_unit(const Json::Value& value,
                                           const std::string& path,
                                           bool owned,
                                           std::vector<std::string>& errors) {
-    if (!value.is_object()) {
+    if (!value.isObject()) {
         errors.push_back(path + " must be an object");
         return std::nullopt;
     }
@@ -106,28 +130,41 @@ std::optional<UnitObservation> parse_unit(const nlohmann::json& value,
     unit.cooldown = optional_value<int>(value, "cooldown", path, errors);
     unit.owned = owned;
 
-    const auto backpack = value.find("backpack");
-    if (backpack != value.end()) {
-        try {
-            unit.backpack = backpack->get<std::vector<std::string>>();
-        } catch (const nlohmann::json::exception&) {
+    if (value.isMember("backpack") && !value["backpack"].isNull()) {
+        const Json::Value& backpack = value["backpack"];
+        if (!backpack.isArray()) {
             errors.push_back(path + ".backpack has an invalid type");
+        } else {
+            bool valid = true;
+            for (Json::ArrayIndex index = 0; index < backpack.size(); ++index) {
+                if (!backpack[index].isString()) {
+                    valid = false;
+                    break;
+                }
+            }
+            if (!valid) {
+                errors.push_back(path + ".backpack has an invalid type");
+            } else {
+                for (Json::ArrayIndex index = 0; index < backpack.size(); ++index) {
+                    unit.backpack.push_back(backpack[index].asString());
+                }
+            }
         }
     }
     return unit;
 }
 
-std::optional<MapObservation> parse_map(const nlohmann::json& value,
+std::optional<MapObservation> parse_map(const Json::Value& value,
                                         std::vector<std::string>& errors) {
-    if (!value.is_object()) {
+    if (!value.isObject()) {
         errors.push_back("$.mapInfo must be an object");
         return std::nullopt;
     }
     const auto width = required<int>(value, "width", "$.mapInfo", errors);
     const auto height = required<int>(value, "height", "$.mapInfo", errors);
-    const auto zones = required<nlohmann::json>(value, "zones", "$.mapInfo", errors);
-    if (!width || !height || !zones || !zones->is_array()) {
-        if (zones && !zones->is_array()) errors.push_back("$.mapInfo.zones must be an array");
+    const auto zones = required<Json::Value>(value, "zones", "$.mapInfo", errors);
+    if (!width || !height || !zones || !zones->isArray()) {
+        if (zones && !zones->isArray()) errors.push_back("$.mapInfo.zones must be an array");
         return std::nullopt;
     }
 
@@ -135,9 +172,9 @@ std::optional<MapObservation> parse_map(const nlohmann::json& value,
     map.width = *width;
     map.height = *height;
     for (std::size_t index = 0; index < zones->size(); ++index) {
-        const auto& zone_json = (*zones)[index];
+        const auto& zone_json = (*zones)[static_cast<Json::ArrayIndex>(index)];
         const std::string path = "$.mapInfo.zones[" + std::to_string(index) + "]";
-        if (!zone_json.is_object()) {
+        if (!zone_json.isObject()) {
             errors.push_back(path + " must be an object");
             continue;
         }
@@ -148,10 +185,10 @@ std::optional<MapObservation> parse_map(const nlohmann::json& value,
     return map;
 }
 
-std::optional<TaskPointObservation> parse_task(const nlohmann::json& value,
+std::optional<TaskPointObservation> parse_task(const Json::Value& value,
                                                const std::string& path,
                                                std::vector<std::string>& errors) {
-    if (!value.is_object()) {
+    if (!value.isObject()) {
         errors.push_back(path + " must be an object");
         return std::nullopt;
     }
@@ -173,9 +210,9 @@ std::optional<TaskPointObservation> parse_task(const nlohmann::json& value,
                                 optional_value<int>(value, "timeoutRounds", path, errors)};
 }
 
-std::optional<TeamOurObservation> parse_our_team(const nlohmann::json& value,
+std::optional<TeamOurObservation> parse_our_team(const Json::Value& value,
                                                  std::vector<std::string>& errors) {
-    if (!value.is_object()) {
+    if (!value.isObject()) {
         errors.push_back("$.teamOur must be an object");
         return std::nullopt;
     }
@@ -184,24 +221,24 @@ std::optional<TeamOurObservation> parse_our_team(const nlohmann::json& value,
     const auto team_name = required<std::string>(value, "teamName", "$.teamOur", errors);
     const auto gold = required<int>(value, "goldNum", "$.teamOur", errors);
     const auto score = required<int>(value, "totalScore", "$.teamOur", errors);
-    const auto tasks = required<nlohmann::json>(value, "playerTasks", "$.teamOur", errors);
-    const auto roles = required<nlohmann::json>(value, "roles", "$.teamOur", errors);
+    const auto tasks = required<Json::Value>(value, "playerTasks", "$.teamOur", errors);
+    const auto roles = required<Json::Value>(value, "roles", "$.teamOur", errors);
     if (!type || !team_id || !team_name || !gold || !score || !tasks || !roles ||
-        !tasks->is_array() || !roles->is_array()) {
-        if (tasks && !tasks->is_array()) errors.push_back("$.teamOur.playerTasks must be an array");
-        if (roles && !roles->is_array()) errors.push_back("$.teamOur.roles must be an array");
+        !tasks->isArray() || !roles->isArray()) {
+        if (tasks && !tasks->isArray()) errors.push_back("$.teamOur.playerTasks must be an array");
+        if (roles && !roles->isArray()) errors.push_back("$.teamOur.roles must be an array");
         return std::nullopt;
     }
 
     TeamOurObservation team{*type, *team_id, *team_name, *gold, *score, {}, {}};
     for (std::size_t index = 0; index < tasks->size(); ++index) {
-        auto task = parse_task((*tasks)[index],
+        auto task = parse_task((*tasks)[static_cast<Json::ArrayIndex>(index)],
                                "$.teamOur.playerTasks[" + std::to_string(index) + "]",
                                errors);
         if (task) team.player_tasks.push_back(std::move(*task));
     }
     for (std::size_t index = 0; index < roles->size(); ++index) {
-        auto unit = parse_unit((*roles)[index],
+        auto unit = parse_unit((*roles)[static_cast<Json::ArrayIndex>(index)],
                                "$.teamOur.roles[" + std::to_string(index) + "]",
                                true,
                                errors);
@@ -210,16 +247,16 @@ std::optional<TeamOurObservation> parse_our_team(const nlohmann::json& value,
     return team;
 }
 
-std::vector<UnitObservation> parse_enemy(const nlohmann::json& value,
+std::vector<UnitObservation> parse_enemy(const Json::Value& value,
                                          std::vector<std::string>& errors) {
     std::vector<UnitObservation> result;
-    if (!value.is_object() || !value.contains("roles") || !value["roles"].is_array()) {
+    if (!value.isObject() || !value.isMember("roles") || !value["roles"].isArray()) {
         errors.push_back("$.teamEnemy.roles must be an array");
         return result;
     }
     const auto& roles = value["roles"];
     for (std::size_t index = 0; index < roles.size(); ++index) {
-        auto unit = parse_unit(roles[index],
+        auto unit = parse_unit(roles[static_cast<Json::ArrayIndex>(index)],
                                "$.teamEnemy.roles[" + std::to_string(index) + "]",
                                false,
                                errors);
@@ -228,18 +265,18 @@ std::vector<UnitObservation> parse_enemy(const nlohmann::json& value,
     return result;
 }
 
-std::vector<RobotObservation> parse_robots(const nlohmann::json& value,
+std::vector<RobotObservation> parse_robots(const Json::Value& value,
                                            std::vector<std::string>& errors) {
     std::vector<RobotObservation> result;
-    if (!value.is_object() || !value.contains("roles") || !value["roles"].is_array()) {
+    if (!value.isObject() || !value.isMember("roles") || !value["roles"].isArray()) {
         errors.push_back("$.robot.roles must be an array");
         return result;
     }
     const auto& roles = value["roles"];
     for (std::size_t index = 0; index < roles.size(); ++index) {
-        const auto& robot = roles[index];
+        const auto& robot = roles[static_cast<Json::ArrayIndex>(index)];
         const std::string path = "$.robot.roles[" + std::to_string(index) + "]";
-        if (!robot.is_object()) {
+        if (!robot.isObject()) {
             errors.push_back(path + " must be an object");
             continue;
         }
@@ -260,18 +297,18 @@ std::vector<RobotObservation> parse_robots(const nlohmann::json& value,
     return result;
 }
 
-std::vector<ShopItemObservation> parse_shop(const nlohmann::json& value,
+std::vector<ShopItemObservation> parse_shop(const Json::Value& value,
                                             const std::string& path,
                                             std::vector<std::string>& errors) {
     std::vector<ShopItemObservation> result;
-    if (!value.is_array()) {
+    if (!value.isArray()) {
         errors.push_back(path + " must be an array");
         return result;
     }
     for (std::size_t index = 0; index < value.size(); ++index) {
-        const auto& item = value[index];
+        const auto& item = value[static_cast<Json::ArrayIndex>(index)];
         const std::string item_path = path + "[" + std::to_string(index) + "]";
-        if (!item.is_object()) {
+        if (!item.isObject()) {
             errors.push_back(item_path + " must be an object");
             continue;
         }
@@ -288,16 +325,16 @@ bool UnitObservation::controllable() const {
     return owned && role_type != RoleType::unknown;
 }
 
-ParseResult parse_turn(const nlohmann::json& input) {
+ParseResult parse_turn(const Json::Value& input) {
     ParseResult result;
-    if (!input.is_object()) {
+    if (!input.isObject()) {
         result.errors.push_back("$ must be an object");
         return result;
     }
 
     const auto round_no = required<int>(input, "roundNo", "$", result.errors);
-    const auto map_json = required<nlohmann::json>(input, "mapInfo", "$", result.errors);
-    const auto our_json = required<nlohmann::json>(input, "teamOur", "$", result.errors);
+    const auto map_json = required<Json::Value>(input, "mapInfo", "$", result.errors);
+    const auto our_json = required<Json::Value>(input, "teamOur", "$", result.errors);
     if (!round_no || !map_json || !our_json) return result;
 
     auto map = parse_map(*map_json, result.errors);
@@ -310,17 +347,15 @@ ParseResult parse_turn(const nlohmann::json& input) {
     turn.team_our = std::move(*team);
     turn.raw = input;
 
-    const auto enemy = input.find("teamEnemy");
-    const auto robots = input.find("robot");
-    if (enemy == input.end()) {
+    if (!input.isMember("teamEnemy")) {
         result.errors.push_back("$.teamEnemy is required");
     } else {
-        turn.team_enemy = parse_enemy(*enemy, result.errors);
+        turn.team_enemy = parse_enemy(input["teamEnemy"], result.errors);
     }
-    if (robots == input.end()) {
+    if (!input.isMember("robot")) {
         result.errors.push_back("$.robot is required");
     } else {
-        turn.robots = parse_robots(*robots, result.errors);
+        turn.robots = parse_robots(input["robot"], result.errors);
     }
 
     turn.phase_task = required<std::string>(input, "phaseTask", "$", result.errors).value_or("");
@@ -330,54 +365,54 @@ ParseResult parse_turn(const nlohmann::json& input) {
     turn.last_command_result =
         required<std::string>(input, "lastCmdResult", "$", result.errors).value_or("");
 
-    const auto action_results = input.find("lastRoundRoleActionResults");
-    if (action_results == input.end() || !action_results->is_object()) {
+    if (!input.isMember("lastRoundRoleActionResults") ||
+        !input["lastRoundRoleActionResults"].isObject()) {
         result.errors.push_back("$.lastRoundRoleActionResults must be an object");
     } else {
-        for (auto item = action_results->begin(); item != action_results->end(); ++item) {
+        const Json::Value& action_results = input["lastRoundRoleActionResults"];
+        for (const auto& key : action_results.getMemberNames()) {
             try {
-                turn.last_round_role_action_results.emplace(std::stoi(item.key()),
-                                                              item.value().get<bool>());
+                if (!action_results[key].isBool()) throw std::invalid_argument("not bool");
+                turn.last_round_role_action_results.emplace(std::stoi(key),
+                                                              action_results[key].asBool());
             } catch (const std::exception&) {
-                result.errors.push_back("$.lastRoundRoleActionResults." + item.key() +
+                result.errors.push_back("$.lastRoundRoleActionResults." + key +
                                         " is invalid");
             }
         }
     }
 
-    const auto news = input.find("worldNews");
-    if (news == input.end() || !news->is_object()) {
+    if (!input.isMember("worldNews") || !input["worldNews"].isObject()) {
         result.errors.push_back("$.worldNews must be an object");
     } else {
+        const Json::Value& news = input["worldNews"];
         turn.world_news.official_news =
-            required<std::string>(*news, "officialNews", "$.worldNews", result.errors)
+            required<std::string>(news, "officialNews", "$.worldNews", result.errors)
                 .value_or("");
         turn.world_news.folk_legends =
-            required<std::string>(*news, "folkLegends", "$.worldNews", result.errors)
+            required<std::string>(news, "folkLegends", "$.worldNews", result.errors)
                 .value_or("");
     }
 
-    const auto vendor = input.find("vendorShopList");
-    const auto weapons = input.find("weaponShopList");
-    if (vendor == input.end()) {
+    if (!input.isMember("vendorShopList")) {
         result.errors.push_back("$.vendorShopList is required");
     } else {
-        turn.vendor_shop = parse_shop(*vendor, "$.vendorShopList", result.errors);
+        turn.vendor_shop = parse_shop(input["vendorShopList"], "$.vendorShopList", result.errors);
     }
-    if (weapons == input.end()) {
+    if (!input.isMember("weaponShopList")) {
         result.errors.push_back("$.weaponShopList is required");
     } else {
-        turn.weapon_shop = parse_shop(*weapons, "$.weaponShopList", result.errors);
+        turn.weapon_shop = parse_shop(input["weaponShopList"], "$.weaponShopList", result.errors);
     }
 
-    const auto errors = input.find("errors");
-    if (errors == input.end() || !errors->is_array()) {
+    if (!input.isMember("errors") || !input["errors"].isArray()) {
         result.errors.push_back("$.errors must be an array");
     } else {
-        for (std::size_t index = 0; index < errors->size(); ++index) {
-            const auto& error = (*errors)[index];
+        const Json::Value& errors = input["errors"];
+        for (std::size_t index = 0; index < errors.size(); ++index) {
+            const auto& error = errors[static_cast<Json::ArrayIndex>(index)];
             const std::string path = "$.errors[" + std::to_string(index) + "]";
-            if (!error.is_object()) {
+            if (!error.isObject()) {
                 result.errors.push_back(path + " must be an object");
                 continue;
             }
@@ -392,25 +427,34 @@ ParseResult parse_turn(const nlohmann::json& input) {
     return result;
 }
 
-nlohmann::json encode_response(const Decision& decision) {
-    nlohmann::json role_commands = nlohmann::json::object();
+Json::Value encode_response(const Decision& decision) {
+    Json::Value role_commands(Json::objectValue);
     for (const auto& [role_id, command] : decision.role_commands) {
-        nlohmann::json encoded{{"action", command.action}};
+        Json::Value encoded(Json::objectValue);
+        encoded["action"] = command.action;
         if (command.controller_id) encoded["controllerId"] = *command.controller_id;
         if (!command.target_positions.empty()) {
-            encoded["targetPos"] = nlohmann::json::array();
+            encoded["targetPos"] = Json::Value(Json::arrayValue);
             for (const auto& pos : command.target_positions) {
-                encoded["targetPos"].push_back({{"x", pos.x}, {"y", pos.y}});
+                Json::Value target(Json::objectValue);
+                target["x"] = pos.x;
+                target["y"] = pos.y;
+                encoded["targetPos"].append(std::move(target));
             }
         }
         if (command.name) encoded["name"] = *command.name;
         if (command.number) encoded["num"] = *command.number;
         if (command.task_answer) encoded["taskAnswer"] = *command.task_answer;
-        if (!command.items.empty()) encoded["item"] = command.items;
+        if (!command.items.empty()) {
+            Json::Value items(Json::arrayValue);
+            for (const auto& item : command.items) items.append(item);
+            encoded["item"] = std::move(items);
+        }
         role_commands[std::to_string(role_id)] = std::move(encoded);
     }
 
-    nlohmann::json response{{"roleCommandMap", std::move(role_commands)}};
+    Json::Value response(Json::objectValue);
+    response["roleCommandMap"] = std::move(role_commands);
     if (decision.prompt) response["prompt"] = *decision.prompt;
     if (decision.execute_command) response["executeCmd"] = *decision.execute_command;
     return response;

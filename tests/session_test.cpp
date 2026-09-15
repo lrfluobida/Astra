@@ -2,15 +2,12 @@
 #include "test_support.hpp"
 
 #include <chrono>
-#include <fstream>
 #include <string>
 
 namespace {
 
-nlohmann::json session_fixture() {
-    std::ifstream input("tests/fixtures/minimal_turn.json");
-    astra::test::require(input.good(), "minimal_turn.json must be readable");
-    return nlohmann::json::parse(input);
+Json::Value session_fixture() {
+    return astra::test::load_json_file("tests/fixtures/minimal_turn.json");
 }
 
 astra::Decision prompt_decision(const std::string& prompt) {
@@ -47,8 +44,7 @@ ASTRA_TEST(session_advances_once_and_returns_cached_response_for_same_round) {
     session.handle(round_two, round_two_move);
     round_two["worldNews"]["officialNews"] = "同一回合的修订消息";
     const auto conflicting = session.handle(round_two, prompt_decision("must not run"));
-    astra::test::require(conflicting ==
-                             nlohmann::json{{"roleCommandMap", nlohmann::json::object()}},
+    astra::test::require(conflicting == astra::test::empty_response(),
                          "different payload in the same round must get a conservative response");
     astra::test::require(session.diagnostics().distinct_rounds == 2,
                          "different payload in the same round must not advance twice");
@@ -85,7 +81,8 @@ ASTRA_TEST(session_correlates_task_results_with_the_active_task_serial) {
 
     input["roundNo"] = 2;
     input["phaseTask"] = "同一道题面";
-    input["lastRoundRoleActionResults"] = {{"10011", true}};
+    input["lastRoundRoleActionResults"] = Json::Value(Json::objectValue);
+    input["lastRoundRoleActionResults"]["10011"] = true;
     session.handle(input, prompt_decision("solve task one"));
     astra::test::require(session.diagnostics().task_serial == 1,
                          "successful task acceptance must allocate a task serial");
@@ -102,7 +99,8 @@ ASTRA_TEST(session_correlates_task_results_with_the_active_task_serial) {
     input["roundNo"] = 4;
     input["phaseTask"] = "同一道题面";
     input["llmResp"] = "unexpected old result";
-    input["lastRoundRoleActionResults"] = {{"10011", true}};
+    input["lastRoundRoleActionResults"] = Json::Value(Json::objectValue);
+    input["lastRoundRoleActionResults"]["10011"] = true;
     session.handle(input);
     astra::test::require(session.diagnostics().task_serial == 2,
                          "identical task text from a new acceptance must get a new serial");
@@ -142,10 +140,10 @@ ASTRA_TEST(session_enforces_daily_llm_budget_and_records_news_once_per_day) {
         input["worldNews"]["officialNews"] = "day one news " + std::to_string(round);
         const auto response = session.handle(input, prompt_decision("daily prompt"));
         if (round <= 3) {
-            astra::test::require(response.contains("prompt"),
+            astra::test::require(response.isMember("prompt"),
                                  "first three daily prompts must be sent");
         } else {
-            astra::test::require(!response.contains("prompt"),
+            astra::test::require(!response.isMember("prompt"),
                                  "fourth daily prompt must be dropped");
         }
     }
@@ -159,7 +157,7 @@ ASTRA_TEST(session_enforces_daily_llm_budget_and_records_news_once_per_day) {
     input["roundNo"] = 131;
     input["worldNews"]["officialNews"] = "day two news";
     const auto next_day = session.handle(input, prompt_decision("new day prompt"));
-    astra::test::require(next_day.contains("prompt"), "new day must reset daily LLM budget");
+    astra::test::require(next_day.isMember("prompt"), "new day must reset daily LLM budget");
     astra::test::require(session.diagnostics().daily_llm_used == 1,
                          "new day usage must begin at one");
     astra::test::require(session.diagnostics().news_by_day.size() == 2,
@@ -171,10 +169,11 @@ ASTRA_TEST(session_does_not_mutate_confirmed_state_for_malformed_observation) {
     auto input = session_fixture();
     session.handle(input);
 
-    const nlohmann::json malformed = {{"roundNo", 999}, {"teamOur", "broken"}};
+    Json::Value malformed(Json::objectValue);
+    malformed["roundNo"] = 999;
+    malformed["teamOur"] = "broken";
     const auto response = session.handle(malformed, prompt_decision("must not be sent"));
-    astra::test::require(response ==
-                             nlohmann::json{{"roleCommandMap", nlohmann::json::object()}},
+    astra::test::require(response == astra::test::empty_response(),
                          "malformed observation must receive conservative response");
     astra::test::require(session.diagnostics().distinct_rounds == 1,
                          "malformed observation must not mutate confirmed state");
@@ -208,9 +207,9 @@ ASTRA_TEST(session_keeps_baseline_when_search_exceeds_budget) {
         });
 
     astra::test::require(search_called, "search must run while initial budget remains");
-    astra::test::require(response["roleCommandMap"].contains("10010"),
+    astra::test::require(response["roleCommandMap"].isMember("10010"),
                          "late search result must not replace baseline response");
-    astra::test::require(!response.contains("prompt"),
+    astra::test::require(!response.isMember("prompt"),
                          "late search prompt must not be sent");
     astra::test::require(session.diagnostics().degradation_reason.find("budget") !=
                              std::string::npos,

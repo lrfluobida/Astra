@@ -1,5 +1,8 @@
 #pragma once
 
+#include "json_io.hpp"
+
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <stdexcept>
@@ -32,6 +35,29 @@ inline void require(bool condition, const std::string& message) {
     if (!condition) {
         throw std::runtime_error(message);
     }
+}
+
+inline Json::Value parse_json_text(const std::string& text) {
+    Json::Value value;
+    std::string error;
+    if (!astra::parse_json(text, value, error)) {
+        throw std::runtime_error("test JSON failed to parse: " + error);
+    }
+    return value;
+}
+
+inline Json::Value load_json_file(const std::string& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) throw std::runtime_error("test JSON file is not readable: " + path);
+    const std::string text((std::istreambuf_iterator<char>(input)),
+                           std::istreambuf_iterator<char>());
+    return parse_json_text(text);
+}
+
+inline Json::Value empty_response() {
+    Json::Value response(Json::objectValue);
+    response["roleCommandMap"] = Json::Value(Json::objectValue);
+    return response;
 }
 
 inline int run(const std::string& filter) {

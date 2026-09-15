@@ -30,10 +30,10 @@ AgentSession::AgentSession() : AgentSession([] { return Clock::now(); }) {}
 
 AgentSession::AgentSession(ClockFunction clock) : clock_(std::move(clock)) {}
 
-nlohmann::json AgentSession::handle_with_budget(const nlohmann::json& input,
-                                                Decision baseline,
-                                                std::chrono::milliseconds budget,
-                                                const SearchFunction& search) {
+Json::Value AgentSession::handle_with_budget(const Json::Value& input,
+                                             Decision baseline,
+                                             std::chrono::milliseconds budget,
+                                             const SearchFunction& search) {
     const auto deadline = clock_() + budget;
     if (clock_() >= deadline) {
         auto response = handle(input, std::move(baseline));
@@ -54,7 +54,7 @@ nlohmann::json AgentSession::handle_with_budget(const nlohmann::json& input,
     }
 }
 
-nlohmann::json AgentSession::handle(const nlohmann::json& input, Decision proposed) {
+Json::Value AgentSession::handle(const Json::Value& input, Decision proposed) {
     const ParseResult parsed = parse_turn(input);
     if (!parsed.turn || !parsed.errors.empty()) {
         return encode_response(Decision{});
@@ -170,8 +170,8 @@ void AgentSession::reset_match() {
     active_task_serial_.reset();
     pending_accept_actor_.reset();
     pending_accept_round_.reset();
-    last_request_ = nlohmann::json();
-    last_response_ = nlohmann::json();
+    last_request_ = Json::Value();
+    last_response_ = Json::Value();
 }
 
 }  // namespace astra

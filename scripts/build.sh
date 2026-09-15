@@ -5,7 +5,15 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-debug}"
 build_dir="$project_dir/build"
 
-common_flags=(-std=c++17 -Wall -Wextra -Wpedantic -pthread -Isrc -Ithird_party)
+jsoncpp_root="$project_dir/.tmp/jsoncpp-packages/root/usr"
+if [[ -f "$jsoncpp_root/include/jsoncpp/json/json.h" ]]; then
+  jsoncpp_flags=(-I"$jsoncpp_root/include/jsoncpp" -L"$jsoncpp_root/lib/x86_64-linux-gnu" \
+    -Wl,-rpath,"$jsoncpp_root/lib/x86_64-linux-gnu" -ljsoncpp)
+else
+  jsoncpp_flags=(-I/usr/include/jsoncpp -ljsoncpp)
+fi
+
+common_flags=(-std=c++17 -Wall -Wextra -Wpedantic -pthread -Isrc)
 case "$mode" in
   debug)
     mode_flags=(-O0 -g)
@@ -27,17 +35,21 @@ cd "$project_dir"
 g++ "${common_flags[@]}" "${mode_flags[@]}" \
   src/actions.cpp \
   src/combat.cpp \
+  src/http_server.cpp \
+  src/json_io.cpp \
   src/main.cpp \
   src/navigation.cpp \
   src/protocol.cpp \
   src/session.cpp \
   src/strategy.cpp \
   src/task_solver.cpp \
-  -o "$build_dir/astra"
+  -o "$build_dir/astra" \
+  "${jsoncpp_flags[@]}"
 
 g++ "${common_flags[@]}" "${mode_flags[@]}" \
   src/actions.cpp \
   src/combat.cpp \
+  src/json_io.cpp \
   src/navigation.cpp \
   src/protocol.cpp \
   src/session.cpp \
@@ -51,4 +63,5 @@ g++ "${common_flags[@]}" "${mode_flags[@]}" \
   tests/session_test.cpp \
   tests/strategy_test.cpp \
   tests/task_solver_test.cpp \
-  -o "$build_dir/astra_tests"
+  -o "$build_dir/astra_tests" \
+  "${jsoncpp_flags[@]}"

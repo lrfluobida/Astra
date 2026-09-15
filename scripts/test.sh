@@ -9,3 +9,4 @@ bash scripts/build.sh "$mode"
 ./build/astra_tests
 python3 tests/http_test.py --binary ./build/astra
 python3 tests/replay_test.py --binary ./build/astra --rounds 1300
+python3 tests/package_test.py

@@ -18,6 +18,18 @@ bash scripts/build.sh debug
 
 可用构建模式为 `debug`、`release` 和 `sanitize`。
 
+本地脚本会使用 `.tmp` 中的 jsoncpp 兼容开发包。参赛程序源码只引用官方允许的 `json/json.h`，不再依赖 nlohmann/json 或 cpp-httplib。
+
+## 官方 SDK 提交包
+
+生成仅包含 CMake 与参赛源码的压缩包：
+
+```bash
+bash scripts/package_sdk.sh
+```
+
+产物为 `dist/Astra-CoreGeek.tar.gz`，目录根为 `SDK/CoreGeek/`。将其覆盖到公司提供的 SDK 后，应保留官方的 `SDK/ThirdParty/include/json/` 和 `SDK/ThirdParty/lib/libjsoncpp.so`，再从 `SDK/CoreGeek` 运行 CMake。默认构建类型为 Release，程序输出到 `SDK/bin/CoreGeek`；二进制通过相对 RPATH 加载官方 jsoncpp，无需修改系统库路径。
+
 ## 启动
 
 判题系统传入端口时运行：
@@ -44,7 +56,7 @@ bash scripts/test.sh release
 bash scripts/test.sh sanitize
 ```
 
-测试覆盖 UTF-8 JSON、协议缺失字段、重复回合、异步结果关联、共享资源和角色冲突、昼夜攻击边界、三类武器目标选择、任务 prompt/命令/复核/提交闭环、HTTP 异常恢复、经济路径选择、多人移动预留，以及 1300 回合连续回放。
+测试覆盖 UTF-8 JSON、协议缺失字段、重复回合、异步结果关联、共享资源和角色冲突、昼夜攻击边界、三类武器目标选择、任务 prompt/命令/复核/提交闭环、HTTP 分包和异常恢复、官方 SDK 提交包、经济路径选择、多人移动预留，以及 1300 回合连续回放。
 
 ## 当前能力边界
 
@@ -56,4 +68,4 @@ bash scripts/test.sh sanitize
 
 当前版本尚未实现建造。规则资料没有给出可可靠推导的建造区时，程序不会猜测建造坐标；战斗规划也不预测机器人下一步。1300 回合回放证明程序能够连续响应并守住状态和命令边界，不代表已经达到最终 PVE 表现上限。
 
-正式判题环境的 Linux 版本、CPU 架构、编译命令、提交包格式和平台实际模型仍待公司平台说明确认。第三方依赖已固定在 `third_party/`，比赛运行和构建过程不联网下载。
+正式环境已确认是 CentOS 7.6、GCC 8.3.1、CMake 3.16.5 和 Make 4.2.1。当前已用 jsoncpp 1.9.5 兼容包验证构建与运行；收到的官方 jsoncpp 1.9.3 文件尚未放入本机工作区，因此正式提交前仍需用官方头文件和 `.so` 做最后一次构建。平台实际模型与上传界面的文件格式仍待公司平台确认。

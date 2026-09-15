@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include <nlohmann/json.hpp>
+#include <json/json.h>
 
 namespace astra {
 
@@ -112,7 +112,7 @@ struct TurnObservation {
     std::vector<ShopItemObservation> vendor_shop;
     std::vector<ShopItemObservation> weapon_shop;
     std::vector<ErrorObservation> errors;
-    nlohmann::json raw;
+    Json::Value raw;
 };
 
 struct ParseResult {
@@ -136,7 +136,7 @@ struct Decision {
     std::optional<std::string> execute_command;
 };
 
-ParseResult parse_turn(const nlohmann::json& input);
-nlohmann::json encode_response(const Decision& decision);
+ParseResult parse_turn(const Json::Value& input);
+Json::Value encode_response(const Decision& decision);
 
 }  // namespace astra
