@@ -20,7 +20,7 @@ bash scripts/build.sh debug
 
 本地脚本会使用 `.tmp` 中的 jsoncpp 兼容开发包。参赛程序源码只引用官方允许的 `json/json.h`，不再依赖 nlohmann/json 或 cpp-httplib。
 
-## 官方 SDK 提交包
+## 比赛提交
 
 生成仅包含 CMake 与参赛源码的压缩包：
 
@@ -28,17 +28,21 @@ bash scripts/build.sh debug
 bash scripts/package_sdk.sh
 ```
 
-产物为 `dist/Astra-CoreGeek.tar.gz`，目录根为 `CoreGeek/`，与官方示例压缩包一致。平台将它放在官方 SDK 中时，应保留相邻的 `ThirdParty/include/json/` 和 `ThirdParty/lib/libjsoncpp.so`，再从 `CoreGeek` 运行 CMake。默认构建类型为 Release，程序输出到同级 `bin/CoreGeek`；二进制通过相对 RPATH 加载官方 jsoncpp，无需修改系统库路径。
+产物为 `dist/Astra-CoreGeek.tar.gz`，可直接上传到只接收 tar.gz 的比赛平台。压缩包根目录是 `CoreGeek/`，与官方示例一致，只包含 CMake 和参赛源码，不包含测试、临时文件或平台禁止的第三方依赖。
+
+平台将 `CoreGeek/` 放入官方 SDK 后，使用相邻的 `ThirdParty/include/json/` 和 `ThirdParty/lib/libjsoncpp.so` 完成编译。CMake 默认使用 Release，程序输出到同级 `bin/CoreGeek`；二进制通过相对 RPATH 加载官方 jsoncpp，无需修改系统库路径。
 
 ## 启动
 
-判题系统传入端口时运行：
+本地开发时运行：
 
 ```bash
 bash run.sh 8080
 ```
 
 服务监听 `0.0.0.0`，接受任意 POST 路径。非法 JSON 会得到 HTTP 200 和保守空响应，服务随后仍可继续处理请求。
+
+比赛平台编译后直接以端口参数启动 `bin/CoreGeek`，不依赖本地 `run.sh`。
 
 回放 JSONL 文件：
 
@@ -68,4 +72,4 @@ bash scripts/test.sh sanitize
 
 当前版本尚未实现建造。规则资料没有给出可可靠推导的建造区时，程序不会猜测建造坐标；战斗规划也不预测机器人下一步。1300 回合回放证明程序能够连续响应并守住状态和命令边界，不代表已经达到最终 PVE 表现上限。
 
-正式环境已确认是 CentOS 7.6、GCC 8.3.1、CMake 3.16.5 和 Make 4.2.1。当前已用 jsoncpp 1.9.5 兼容包验证构建与运行；收到的官方 jsoncpp 1.9.3 文件尚未放入本机工作区，因此正式提交前仍需用官方头文件和 `.so` 做最后一次构建。平台实际模型与上传界面的文件格式仍待公司平台确认。
+正式环境已确认是 CentOS 7.6、GCC 8.3.1、CMake 3.16.5 和 Make 4.2.1，提交格式为 tar.gz。当前已用 jsoncpp 1.9.5 兼容包完成 Debug、Release、Sanitizer、CMake、HTTP 分包和 1300 回合回放验证；正式平台将使用 SDK 自带的 jsoncpp 1.9.3。平台实际模型能力仍需通过比赛运行结果继续调优。
