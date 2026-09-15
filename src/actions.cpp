@@ -1,4 +1,5 @@
 #include "actions.hpp"
+#include "navigation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -325,8 +326,11 @@ std::string validate_accept_task(const TurnObservation& turn,
     const bool ready_task =
         std::any_of(turn.team_our.player_tasks.begin(), turn.team_our.player_tasks.end(),
                     [&](const TaskPointObservation& task) {
-                        return task.valid && task.cooldown_rounds == 0 &&
-                               distance(actor->pos, task.position) <= 1;
+                        if (!task.valid || task.cooldown_rounds != 0) return false;
+                        const auto cells = task_interaction_cells(turn, task);
+                        return std::any_of(cells.begin(), cells.end(), [&](const Pos& cell) {
+                            return same_pos(actor->pos, cell);
+                        });
                     });
     return ready_task ? "" : "acceptTask requires an adjacent ready own task point";
 }

@@ -7,8 +7,10 @@
 #include "task_solver.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <tuple>
 
 namespace astra {
@@ -315,12 +317,80 @@ std::optional<CandidateAction> economic_move(const TurnObservation& turn,
     return move_candidate(worker, best->path.next, priority);
 }
 
+std::map<int, Pos> defense_posts(const TurnObservation& turn,
+                                 const std::vector<const UnitObservation*>& characters,
+                                 const std::vector<CandidateAction>& attacks,
+                                 const NavigationReservations& reservations) {
+    std::map<int, Pos> assigned;
+    std::set<int> used_weapons;
+    for (const auto& attack : attacks) {
+        const int controller = std::stoi(*attack.command.controller_id);
+        for (const auto* actor : characters) {
+            if (actor->id == controller) assigned[controller] = actor->pos;
+        }
+        used_weapons.insert(attack.action_key);
+    }
+    std::vector<const UnitObservation*> actors;
+    for (const auto* actor : characters) {
+        if (assigned.count(actor->id) == 0 &&
+            (actor->role_type != RoleType::pioneer || turn.phase_task.empty())) {
+            actors.push_back(actor);
+        }
+    }
+    std::sort(actors.begin(), actors.end(), [](const auto* left, const auto* right) {
+        return left->id < right->id;
+    });
+    std::vector<const UnitObservation*> weapons;
+    for (const auto& unit : turn.team_our.roles) {
+        if (unit.health && *unit.health > 0 &&
+            (unit.role_type == RoleType::rocket || unit.role_type == RoleType::gatling ||
+             unit.role_type == RoleType::railgun)) weapons.push_back(&unit);
+    }
+    std::sort(weapons.begin(), weapons.end(), [](const auto* left, const auto* right) {
+        return left->id < right->id;
+    });
+    auto best = assigned;
+    int best_distance = 0;
+    std::function<void(std::size_t, int)> search = [&](std::size_t index, int total_distance) {
+        if (index == actors.size()) {
+            if (assigned.size() > best.size() ||
+                (assigned.size() == best.size() && total_distance < best_distance)) {
+                best = assigned;
+                best_distance = total_distance;
+            }
+            return;
+        }
+        search(index + 1, total_distance);
+        const auto* actor = actors[index];
+        auto reserved = reservations;
+        for (const auto& [id, pos] : assigned) {
+            (void)id;
+            reserved.destinations.push_back(pos);
+        }
+        for (const auto* weapon : weapons) {
+            if (used_weapons.count(weapon->id) != 0) continue;
+            const auto path = next_step_toward_any(
+                turn, actor->id, interaction_cells(turn, weapon->pos), reserved);
+            if (!path || std::any_of(assigned.begin(), assigned.end(), [&](const auto& entry) {
+                    return same_pos(entry.second, path->goal);
+                })) continue;
+            assigned[actor->id] = path->goal;
+            used_weapons.insert(weapon->id);
+            search(index + 1, total_distance + path->distance);
+            used_weapons.erase(weapon->id);
+            assigned.erase(actor->id);
+        }
+    };
+    search(0, 0);
+    return best;
+}
+
 std::optional<CandidateAction> return_move(const TurnObservation& turn,
                                            const UnitObservation& actor,
                                            const NavigationReservations& reservations,
+                                           const std::vector<Pos>& goals,
                                            int priority) {
-    const auto path = next_step_toward_any(
-        turn, actor.id, station_interaction_cells(turn), reservations);
+    const auto path = next_step_toward_any(turn, actor.id, goals, reservations);
     if (!path || path->distance == 0) return std::nullopt;
     auto candidate = move_candidate(actor, path->next, priority);
     candidate.source = "defense.return";
@@ -480,8 +550,10 @@ std::optional<CandidateAction> pioneer_task_action(
     bool adjacent = false;
     for (const auto& task : turn.team_our.player_tasks) {
         if (!task.valid || task.cooldown_rounds != 0) continue;
-        if (distance(pioneer.pos, task.position) <= 1) adjacent = true;
-        const auto cells = interaction_cells(turn, task.position);
+        const auto cells = task_interaction_cells(turn, task);
+        if (std::any_of(cells.begin(), cells.end(), [&](const Pos& cell) {
+                return same_pos(pioneer.pos, cell);
+            })) adjacent = true;
         goals.insert(goals.end(), cells.begin(), cells.end());
     }
     if (adjacent) {
@@ -578,35 +650,48 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     std::vector<CandidateAction> candidates = task.actions;
     const auto combat = combat_candidates(turn, 3000);
     candidates.insert(candidates.end(), combat.begin(), combat.end());
+    std::set<int> firing_controllers;
+    for (const auto& attack : combat) {
+        firing_controllers.insert(std::stoi(*attack.command.controller_id));
+    }
     NavigationReservations reservations;
-    reservations.destinations = missing_rocket_sites;
-    reservations.destinations.insert(reservations.destinations.end(),
-                                     missing_front_walls.begin(),
-                                     missing_front_walls.end());
+    if (round_in_day <= 70) {
+        reservations.destinations = missing_rocket_sites;
+        reservations.destinations.insert(reservations.destinations.end(),
+                                         missing_front_walls.begin(),
+                                         missing_front_walls.end());
+    }
+    const auto posts = defense_posts(turn, characters, combat, reservations);
     std::size_t defense_index = 0;
+    int build_gold_remaining = turn.team_our.gold;
     int priority = 1000;
     for (const auto* actor : characters) {
+        if (firing_controllers.count(actor->id) != 0) continue;
+        const auto post = posts.find(actor->id);
+        const auto return_goals = post == posts.end() ? station_interaction_cells(turn)
+                                                      : std::vector<Pos>{post->second};
         std::optional<CandidateAction> candidate;
         if (actor->role_type == RoleType::pioneer && !turn.phase_task.empty()) {
             candidate = std::nullopt;
         } else if (round_in_day > 70) {
-            candidate = return_move(turn, *actor, reservations, priority);
+            candidate = return_move(turn, *actor, reservations, return_goals, priority);
         } else if (actor->role_type == RoleType::worker) {
             const auto return_path = next_step_toward_any(
-                turn, actor->id, station_interaction_cells(turn), reservations);
+                turn, actor->id, return_goals, reservations);
             const int daylight_remaining = 70 - round_in_day + 1;
             if (return_path && daylight_remaining <= return_path->distance + 2) {
-                candidate = return_move(turn, *actor, reservations, priority);
+                candidate = return_move(turn, *actor, reservations, return_goals, priority);
             } else if (station_interaction_cells(turn).empty() && daylight_remaining <= 2) {
                 candidate = std::nullopt;
             } else {
-                if (defense_index < missing_rocket_sites.size()) {
+                if (defense_index < missing_rocket_sites.size() && build_gold_remaining >= 25) {
                     candidate = rocket_build_action(turn,
                                                     *actor,
                                                     missing_rocket_sites[defense_index],
                                                     reservations,
                                                     priority);
                     ++defense_index;
+                    if (candidate) build_gold_remaining -= 25;
                 }
                 if (!candidate && upgrade_target && upgrade_actor == actor->id) {
                     candidate = rocket_upgrade_action(turn,
@@ -630,10 +715,10 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
             }
         } else {
             const auto return_path = next_step_toward_any(
-                turn, actor->id, station_interaction_cells(turn), reservations);
+                turn, actor->id, return_goals, reservations);
             const int daylight_remaining = 70 - round_in_day + 1;
             if (return_path && daylight_remaining <= return_path->distance + 2) {
-                candidate = return_move(turn, *actor, reservations, priority);
+                candidate = return_move(turn, *actor, reservations, return_goals, priority);
             } else {
                 candidate = pioneer_task_action(turn, *actor, reservations, priority);
             }

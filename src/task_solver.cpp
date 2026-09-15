@@ -51,6 +51,10 @@ std::string protocol_text() {
         "command 必须在 10 秒内结束，输出仅保留下一步求解所需证据，不启动后台进程。";
 }
 
+std::string history_context(const TurnObservation& turn) {
+    return turn.task_history.empty() ? "无。" : turn.task_history;
+}
+
 std::string initial_prompt(const TurnObservation& turn) {
     return
         "你是 Astra 的高精度离线任务求解器。先在内部逐项提取目标、约束、答案字段和可验证证据，再选择直接回答或执行一次命令。"
@@ -58,6 +62,8 @@ std::string initial_prompt(const TurnObservation& turn) {
         "<TASK>\n" +
         turn.phase_task +
         "\n</TASK>\n\n"
+        "<TASK_HISTORY>\n" +
+        history_context(turn) + "\n</TASK_HISTORY>\n\n"
         "<PREVIOUS_ERRORS>\n" +
         error_context(turn) + "</PREVIOUS_ERRORS>\n\n" + protocol_text();
 }
@@ -72,6 +78,8 @@ std::string review_prompt(const TurnObservation& turn) {
         "<COMMAND_RESULT>\n" +
         turn.last_command_result +
         "\n</COMMAND_RESULT>\n\n"
+        "<TASK_HISTORY>\n" +
+        history_context(turn) + "\n</TASK_HISTORY>\n\n"
         "<PREVIOUS_ERRORS>\n" +
         error_context(turn) + "</PREVIOUS_ERRORS>\n\n" + protocol_text();
 }
@@ -82,6 +90,8 @@ std::string repair_prompt(const TurnObservation& turn, const std::string& respon
         "<TASK>\n" +
         turn.phase_task +
         "\n</TASK>\n\n"
+        "<TASK_HISTORY>\n" +
+        history_context(turn) + "\n</TASK_HISTORY>\n\n"
         "<INVALID_OUTPUT>\n" +
         response + "\n</INVALID_OUTPUT>\n\n" + protocol_text();
 }

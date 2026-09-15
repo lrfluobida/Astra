@@ -1,4 +1,5 @@
 #include "combat.hpp"
+#include "navigation.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -61,10 +62,8 @@ int station_distance(const TurnObservation& turn, const Pos& pos) {
     int best = turn.map.width + turn.map.height;
     for (const auto& unit : turn.team_our.roles) {
         if (unit.role_type != RoleType::station || !alive(unit)) continue;
-        for (int dx = 0; dx <= 1; ++dx) {
-            for (int dy = 0; dy <= 1; ++dy) {
-                best = std::min(best, distance(pos, {unit.pos.x + dx, unit.pos.y + dy}));
-            }
+        for (const auto& cell : occupied_cells(unit)) {
+            best = std::min(best, distance(pos, cell));
         }
     }
     return best;
@@ -104,8 +103,16 @@ std::vector<const RobotObservation*> live_robots(const TurnObservation& turn) {
     return result;
 }
 
+using RemainingHealth = std::map<int, int>;
+
+int remaining_health(const RemainingHealth& health, const RobotObservation& robot) {
+    const auto found = health.find(robot.id);
+    return found == health.end() ? robot.health : found->second;
+}
+
 std::optional<AttackPlan> rocket_plan(const TurnObservation& turn,
-                                      const UnitObservation& weapon) {
+                                      const UnitObservation& weapon,
+                                      const RemainingHealth& previous) {
     const auto robots = live_robots(turn);
     std::set<std::pair<int, int>> cells;
     for (const auto* robot : robots) {
@@ -122,7 +129,7 @@ std::optional<AttackPlan> rocket_plan(const TurnObservation& turn,
     if (cells.empty()) return std::nullopt;
 
     std::map<int, int> health;
-    for (const auto* robot : robots) health[robot->id] = robot->health;
+    for (const auto* robot : robots) health[robot->id] = remaining_health(previous, *robot);
     AttackPlan plan;
     for (int missile = 0; missile < *weapon.level; ++missile) {
         long long best_score = std::numeric_limits<long long>::min();
@@ -175,7 +182,8 @@ bool on_segment(const Pos& origin, const Pos& endpoint, const Pos& point) {
 }
 
 std::optional<AttackPlan> railgun_plan(const TurnObservation& turn,
-                                       const UnitObservation& weapon) {
+                                       const UnitObservation& weapon,
+                                       const RemainingHealth& previous) {
     const auto robots = live_robots(turn);
     AttackPlan best;
     bool found = false;
@@ -196,7 +204,7 @@ std::optional<AttackPlan> railgun_plan(const TurnObservation& turn,
         long long utility = 0;
         for (const auto* robot : line) {
             const int damage = std::min(energy, robot->health);
-            utility += damage_utility(turn, *robot, robot->health, damage);
+            utility += damage_utility(turn, *robot, remaining_health(previous, *robot), damage);
             energy -= damage;
             if (energy == 0) break;
         }
@@ -246,7 +254,8 @@ bool target_sequence_less(const std::vector<Pos>& left, const std::vector<Pos>& 
 }
 
 std::optional<AttackPlan> gatling_plan(const TurnObservation& turn,
-                                       const UnitObservation& weapon) {
+                                       const UnitObservation& weapon,
+                                       const RemainingHealth& previous) {
     const auto robots = live_robots(turn);
     std::vector<Pos> targets;
     for (const auto* robot : robots) {
@@ -268,7 +277,7 @@ std::optional<AttackPlan> gatling_plan(const TurnObservation& turn,
     for (const auto& seed : targets) {
         AttackPlan plan;
         std::map<int, int> health;
-        for (const auto* robot : robots) health[robot->id] = robot->health;
+        for (const auto* robot : robots) health[robot->id] = remaining_health(previous, *robot);
         for (int bullet = 0; bullet < *weapon.level; ++bullet) {
             long long best_score = std::numeric_limits<long long>::min();
             Pos best_target{};
@@ -311,6 +320,53 @@ struct WeaponOption {
     std::vector<const UnitObservation*> controllers;
 };
 
+std::optional<AttackPlan> plan_attack(const TurnObservation& turn,
+                                      const UnitObservation& weapon,
+                                      const RemainingHealth& previous) {
+    if (!is_night(turn.round_no) || !complete_weapon(weapon)) return std::nullopt;
+    if (weapon.role_type == RoleType::rocket) return rocket_plan(turn, weapon, previous);
+    if (weapon.role_type == RoleType::railgun) return railgun_plan(turn, weapon, previous);
+    return gatling_plan(turn, weapon, previous);
+}
+
+void reserve_damage(const TurnObservation& turn,
+                     const UnitObservation& weapon,
+                     const AttackPlan& plan,
+                     RemainingHealth& health) {
+    const auto robots = live_robots(turn);
+    const auto damage = [&](const RobotObservation& robot, int amount) {
+        health[robot.id] = std::max(0, remaining_health(health, robot) - amount);
+    };
+    for (const auto& target : plan.targets) {
+        if (weapon.role_type == RoleType::rocket) {
+            for (const auto* robot : robots) {
+                const int range = distance(target, robot->pos);
+                if (range <= 1) damage(*robot, range == 0 ? 20 : 10);
+            }
+        } else if (weapon.role_type == RoleType::gatling) {
+            const auto* hit = gatling_hit(robots, weapon.pos, target);
+            if (hit) damage(*hit, 10);
+        } else {
+            std::vector<const RobotObservation*> line;
+            for (const auto* robot : robots) {
+                if (on_segment(weapon.pos, target, robot->pos)) line.push_back(robot);
+            }
+            std::sort(line.begin(), line.end(), [&](const auto* left, const auto* right) {
+                return std::make_pair(distance(weapon.pos, left->pos), left->id) <
+                       std::make_pair(distance(weapon.pos, right->pos), right->id);
+            });
+            int energy = *weapon.attack_power;
+            for (const auto* robot : line) {
+                // Damage settles at round end: planned kills still block shots and consume energy.
+                const int amount = std::min(energy, robot->health);
+                damage(*robot, amount);
+                energy -= amount;
+                if (energy == 0) break;
+            }
+        }
+    }
+}
+
 struct Matching {
     long long utility = 0;
     std::vector<std::pair<int, int>> assignments;
@@ -351,17 +407,17 @@ void search_matching(const std::vector<WeaponOption>& options,
 
 std::optional<AttackPlan> plan_weapon_attack(const TurnObservation& turn,
                                              const UnitObservation& weapon) {
-    if (!is_night(turn.round_no) || !complete_weapon(weapon)) return std::nullopt;
-    if (weapon.role_type == RoleType::rocket) return rocket_plan(turn, weapon);
-    if (weapon.role_type == RoleType::railgun) return railgun_plan(turn, weapon);
-    return gatling_plan(turn, weapon);
+    return plan_attack(turn, weapon, {});
 }
 
 std::vector<CandidateAction> combat_candidates(const TurnObservation& turn, int priority_start) {
     if (!is_night(turn.round_no)) return {};
     std::vector<const UnitObservation*> controllers;
     for (const auto& unit : turn.team_our.roles) {
-        if (alive(unit) && is_character(unit.role_type)) controllers.push_back(&unit);
+        if (alive(unit) && is_character(unit.role_type) &&
+            (unit.role_type != RoleType::pioneer || turn.phase_task.empty())) {
+            controllers.push_back(&unit);
+        }
     }
     std::sort(controllers.begin(), controllers.end(), [](const auto* left, const auto* right) {
         return left->id < right->id;
@@ -390,17 +446,25 @@ std::vector<CandidateAction> combat_candidates(const TurnObservation& turn, int 
     std::vector<CandidateAction> result;
     std::map<int, const WeaponOption*> option_by_id;
     for (const auto& option : options) option_by_id[option.weapon->id] = &option;
+    std::sort(best.assignments.begin(), best.assignments.end(), [&](const auto& left, const auto& right) {
+        return std::make_pair(*option_by_id.at(left.first)->weapon->attack_range, left.first) <
+               std::make_pair(*option_by_id.at(right.first)->weapon->attack_range, right.first);
+    });
+    RemainingHealth health;
     int priority = priority_start;
     for (const auto& [weapon_id, controller_id] : best.assignments) {
         const auto& option = *option_by_id.at(weapon_id);
+        const auto plan = plan_attack(turn, *option.weapon, health);
+        if (!plan) continue;
         CandidateAction candidate;
         candidate.action_key = weapon_id;
         candidate.command.action = "attack";
         candidate.command.controller_id = std::to_string(controller_id);
-        candidate.command.target_positions = option.plan.targets;
+        candidate.command.target_positions = plan->targets;
         candidate.priority = priority--;
         candidate.source = "combat.attack";
         result.push_back(std::move(candidate));
+        reserve_damage(turn, *option.weapon, *plan, health);
     }
     return result;
 }

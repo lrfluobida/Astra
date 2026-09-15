@@ -1,4 +1,5 @@
 #include "defense.hpp"
+#include "navigation.hpp"
 #include "strategy.hpp"
 #include "test_support.hpp"
 
@@ -421,7 +422,7 @@ ASTRA_TEST(strategy_collects_stone_for_front_wall_while_other_worker_upgrades) {
     const auto decision = astra::BaselineStrategy().decide(turn);
     astra::test::require(command_for(decision, 10010) &&
                              command_for(decision, 10010)->action == "buy",
-                         "upgrade worker must keep buying the near-rocket voucher");
+                         "upgrade worker must keep buying the far-rocket voucher");
     astra::test::require(command_for(decision, 10012) &&
                              command_for(decision, 10012)->action == "collect" &&
                              command_for(decision, 10012)->target_positions.front().x == 7 &&
@@ -454,4 +455,106 @@ ASTRA_TEST(strategy_builds_only_the_front_half_wall_with_reserved_stone) {
                                                pos.y == build->target_positions.front().y;
                                     }),
                          "wall target must belong to the selected front half only");
+}
+
+ASTRA_TEST(strategy_rebuild_shortage_does_not_block_sale_or_other_worker) {
+    auto turn = economy_turn();
+    turn.map.width = 41;
+    turn.map.height = 32;
+    turn.team_our.gold = 0;
+    turn.map.zones = {{{7, 24}, "vendor"}, {{12, 27}, "copper"}};
+    turn.team_our.roles = {worker(10010, {8, 25}), worker(10012, {11, 26}),
+                           station({10, 24}), rocket(10042, {12, 22}, 1)};
+    turn.team_our.roles.front().backpack.assign(10, "copper");
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* sale = command_for(decision, 10010);
+    const auto* collect = command_for(decision, 10012);
+    astra::test::require(sale && sale->action == "sell" && sale->number == 10,
+                         "rebuild shortage must allow a carried mineral sale");
+    astra::test::require(collect && collect->action == "collect",
+                         "unfunded second builder must return to mining");
+
+    turn.team_our.gold = 25;
+    turn.team_our.roles.front().backpack.clear();
+    const auto one_build = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(one_build, 10010) &&
+                             command_for(one_build, 10010)->action == "build",
+                         "one affordable rocket must still be built");
+    astra::test::require(command_for(one_build, 10012) &&
+                             command_for(one_build, 10012)->action == "collect",
+                         "second worker must not lose its turn overspending shared gold");
+}
+
+ASTRA_TEST(strategy_returns_to_staff_all_three_rockets_over_applied_rounds) {
+    auto turn = economy_turn();
+    turn.map.width = 41;
+    turn.map.height = 32;
+    turn.round_no = 71;
+    turn.team_our.roles = {worker(10010, {10, 22}), worker(10012, {11, 22}),
+                           pioneer(10011, {12, 23}), station({10, 24}),
+                           rocket(10040, {9, 25}, 3), rocket(10041, {10, 25}, 3),
+                           rocket(10042, {12, 22}, 3)};
+    for (auto& role : turn.team_our.roles) {
+        if (role.role_type == astra::RoleType::rocket) role.attack_power = 20;
+    }
+    turn.robots = {{30001, {18, 18}, "bossRobot", 2000, "", "challenger"}};
+    std::set<int> fired;
+    for (int step = 0; step < 12; ++step, ++turn.round_no) {
+        const auto decision = astra::BaselineStrategy().decide(turn);
+        std::set<std::pair<int, int>> destinations;
+        for (auto& role : turn.team_our.roles) {
+            const auto* command = command_for(decision, role.id);
+            if (role.role_type == astra::RoleType::rocket && role.cooldown && *role.cooldown > 0) {
+                --*role.cooldown;
+            }
+            if (!command) continue;
+            if (command->action == "attack") {
+                fired.insert(role.id);
+                role.cooldown = 3;
+                astra::test::require(command_for(decision, std::stoi(*command->controller_id)) == nullptr,
+                                     "a firing controller must not move simultaneously");
+            } else if (command->action == "move") {
+                const auto next = command->target_positions.front();
+                astra::test::require(destinations.emplace(next.x, next.y).second,
+                                     "returning actors must not collide");
+                role.pos = next;
+            }
+        }
+    }
+    astra::test::require(fired == std::set<int>({10040, 10041, 10042}),
+                         "both rear rockets must gain operators instead of idling at station ring");
+}
+
+ASTRA_TEST(strategy_accepts_task_from_second_occupied_cell_for_both_sides) {
+    for (const std::string side : {"challenger", "defender"}) {
+        auto turn = economy_turn();
+        turn.map.width = 41;
+        turn.map.height = 32;
+        turn.team_our.type = side;
+        turn.team_our.roles = {pioneer(10011, {15, 17})};
+        turn.team_our.player_tasks = {{"selfEvolution", {17, 17}, 0, 50, 30, true, 20}};
+        turn.map.zones = {{{17, 17}, side + "TaskPoint2"},
+                          {{16, 17}, side + "TaskPoint2"},
+                          {{14, 17}, side + "TaskPoint1"}};
+        const auto decision = astra::BaselineStrategy().decide(turn);
+        const auto* command = command_for(decision, 10011);
+        astra::test::require(command && command->action == "acceptTask",
+                             "own task point second cell must allow immediate acceptance");
+        turn.team_our.player_tasks.front().cooldown_rounds = 1;
+        astra::test::require(astra::BaselineStrategy().decide(turn).role_commands.empty(),
+                             "second-cell geometry must not bypass task cooldown");
+    }
+}
+
+ASTRA_TEST(strategy_leaves_station_ring_for_rocket_post_before_dusk) {
+    auto turn = economy_turn();
+    turn.round_no = 70;
+    turn.map.width = 41;
+    turn.map.height = 32;
+    turn.team_our.roles = {worker(10010, {10, 22}), station({10, 24}),
+                           rocket(10040, {9, 25}, 3)};
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* move = command_for(decision, 10010);
+    astra::test::require(move && move->action == "move",
+                         "being on station ring must not prevent moving to a rocket before dusk");
 }

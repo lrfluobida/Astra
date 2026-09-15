@@ -99,6 +99,32 @@ std::vector<Pos> station_interaction_cells(const TurnObservation& turn) {
     return result;
 }
 
+std::vector<Pos> task_interaction_cells(const TurnObservation& turn,
+                                       const TaskPointObservation& task) {
+    std::vector<Pos> footprint{task.position};
+    for (const auto& anchor : turn.map.zones) {
+        if (!same_pos(anchor.pos, task.position) ||
+            (anchor.neutral_type != turn.team_our.type + "TaskPoint1" &&
+             anchor.neutral_type != turn.team_our.type + "TaskPoint2")) continue;
+        for (const auto& zone : turn.map.zones) {
+            if (zone.neutral_type == anchor.neutral_type && !same_pos(zone.pos, task.position)) {
+                footprint.push_back(zone.pos);
+            }
+        }
+        break;
+    }
+    std::vector<Pos> result = footprint;
+    for (const auto& cell : footprint) {
+        const auto neighbors = interaction_cells(turn, cell);
+        for (const auto& neighbor : neighbors) {
+            if (std::none_of(result.begin(), result.end(), [&](const Pos& existing) {
+                    return same_pos(existing, neighbor);
+                })) result.push_back(neighbor);
+        }
+    }
+    return result;
+}
+
 std::optional<PathStep> next_step_toward_any(const TurnObservation& turn,
                                              int actor_id,
                                              const std::vector<Pos>& goals,

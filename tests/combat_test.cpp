@@ -96,6 +96,72 @@ ASTRA_TEST(combat_rocket_uses_empty_splash_cell_for_cluster) {
                          "rocket target must splash both robots");
 }
 
+ASTRA_TEST(combat_rocket_salvo_shares_damage_across_weapons) {
+    auto turn = combat_turn();
+    turn.team_our.roles.push_back(weapon(10040, {9, 25}, astra::RoleType::rocket, 3, 41, 20));
+    turn.team_our.roles.push_back(weapon(10041, {10, 25}, astra::RoleType::rocket, 3, 41, 20));
+    turn.team_our.roles.push_back(weapon(10042, {12, 22}, astra::RoleType::rocket, 3, 41, 20));
+    turn.team_our.roles.push_back(unit(10010, {8, 25}, astra::RoleType::worker));
+    turn.team_our.roles.push_back(unit(10012, {11, 26}, astra::RoleType::worker));
+    turn.team_our.roles.push_back(unit(10011, {12, 23}, astra::RoleType::pioneer));
+    turn.robots = {robot(1, {15, 20}, "middleRobot", 60),
+                   robot(2, {21, 20}, "middleRobot", 60),
+                   robot(3, {27, 20}, "middleRobot", 60)};
+
+    const auto attacks = astra::combat_candidates(turn, 3000);
+    astra::test::require(attacks.size() == 3, "three staffed rockets must fire");
+    for (const auto& target : turn.robots) {
+        int damage = 0;
+        for (const auto& attack : attacks) {
+            for (const auto& aim : attack.command.target_positions) {
+                const int range = std::max(std::abs(aim.x - target.pos.x),
+                                            std::abs(aim.y - target.pos.y));
+                damage += range == 0 ? 20 : (range == 1 ? 10 : 0);
+            }
+        }
+        astra::test::require(damage >= target.health,
+                             "coordinated salvo must kill all three separated 60HP targets");
+    }
+}
+
+ASTRA_TEST(combat_threat_distance_uses_station_top_left_footprint) {
+    auto turn = combat_turn();
+    const auto gun = weapon(10040, {8, 24}, astra::RoleType::rocket, 1, 10, 20);
+    turn.robots = {robot(1, {10, 22}, "smallRobot", 20),
+                   robot(2, {10, 26}, "smallRobot", 20)};
+    const auto plan = astra::plan_weapon_attack(turn, gun);
+    astra::test::require(plan && plan->targets.front().x == 10 &&
+                             plan->targets.front().y == 22,
+                         "robot adjacent to the base bottom edge must take priority");
+}
+
+ASTRA_TEST(combat_planned_kill_still_blocks_other_weapons_until_round_end) {
+    auto turn = combat_turn();
+    turn.team_our.roles = {
+        weapon(10040, {2, 2}, astra::RoleType::rocket, 1, 5, 20),
+        weapon(10020, {2, 3}, astra::RoleType::gatling, 1, 10, 10),
+        unit(10010, {1, 2}, astra::RoleType::worker),
+        unit(10012, {1, 3}, astra::RoleType::worker),
+    };
+    turn.robots = {robot(1, {5, 3}, "smallRobot", 20),
+                   robot(2, {8, 3}, "smallRobot", 40)};
+    const auto attacks = astra::combat_candidates(turn);
+    astra::test::require(attacks.size() == 1 && attacks.front().action_key == 10040,
+                         "gatling must not shoot through a robot whose death is only planned");
+}
+
+ASTRA_TEST(combat_does_not_assign_active_task_pioneer_to_weapon) {
+    auto turn = combat_turn();
+    turn.team_our.roles = {
+        weapon(10040, {2, 2}, astra::RoleType::rocket, 1, 10, 20),
+        unit(10011, {1, 2}, astra::RoleType::pioneer),
+    };
+    turn.robots = {robot(1, {5, 3}, "smallRobot", 20)};
+    turn.phase_task = "active task";
+    astra::test::require(astra::combat_candidates(turn).empty(),
+                         "task-bound pioneer must not reserve a weapon or predicted damage");
+}
+
 ASTRA_TEST(combat_railgun_aims_through_aligned_robots) {
     auto turn = combat_turn();
     const auto railgun = weapon(10030, {1, 1}, astra::RoleType::railgun, 3, 10, 100);

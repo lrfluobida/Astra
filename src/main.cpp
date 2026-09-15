@@ -18,9 +18,9 @@ Json::Value conservative_response() {
 Json::Value decide_request(astra::AgentSession& session,
                            const astra::BaselineStrategy& strategy,
                            const Json::Value& input) {
-    const auto parsed = astra::parse_turn(input);
-    if (!parsed.turn || !parsed.errors.empty()) return conservative_response();
-    return session.handle(input, strategy.decide(*parsed.turn));
+    return session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        return strategy.decide(turn);
+    });
 }
 
 bool parse_port(const std::string& text, int& port) {

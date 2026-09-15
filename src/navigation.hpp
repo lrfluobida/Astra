@@ -26,6 +26,8 @@ struct PathStep {
 std::vector<Pos> occupied_cells(const UnitObservation& unit);
 std::vector<Pos> interaction_cells(const TurnObservation& turn, Pos target);
 std::vector<Pos> station_interaction_cells(const TurnObservation& turn);
+std::vector<Pos> task_interaction_cells(const TurnObservation& turn,
+                                       const TaskPointObservation& task);
 
 std::optional<PathStep> next_step_toward_any(const TurnObservation& turn,
                                              int actor_id,

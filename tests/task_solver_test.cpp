@@ -94,11 +94,14 @@ ASTRA_TEST(task_solver_executes_model_command_then_requests_evidence_review) {
 
 ASTRA_TEST(task_solver_repairs_malformed_structured_output) {
     auto turn = task_turn();
+    turn.task_history = "[command/result]\ncommand: cat alpha\nresult: 阿尔法";
     turn.llm_response = "{\"kind\":\"answer\",\"answer\":18";
     const auto planned = astra::task_candidates(turn);
     astra::test::require(planned.actions.empty() && planned.top_level.size() == 1 &&
                              planned.top_level.front().kind == astra::TopLevelKind::prompt &&
                              planned.top_level.front().value.find("格式修复") !=
+                                 std::string::npos &&
+                             planned.top_level.front().value.find(turn.task_history) !=
                                  std::string::npos &&
                              planned.top_level.front().value.find(turn.llm_response) !=
                                  std::string::npos,

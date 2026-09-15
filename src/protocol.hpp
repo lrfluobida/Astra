@@ -104,6 +104,7 @@ struct TurnObservation {
     std::vector<UnitObservation> team_enemy;
     std::vector<RobotObservation> robots;
     std::string phase_task;
+    std::string task_history;
     std::map<int, bool> last_round_role_action_results;
     int last_summon_treasure_result = 0;
     std::string llm_response;

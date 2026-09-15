@@ -1,4 +1,5 @@
 #include "session.hpp"
+#include "strategy.hpp"
 #include "test_support.hpp"
 
 #include <chrono>
@@ -20,6 +21,41 @@ astra::Decision accept_task_decision() {
     astra::Decision decision;
     decision.role_commands[10011].action = "acceptTask";
     return decision;
+}
+
+bool is_valid_utf8(const std::string& text) {
+    std::size_t index = 0;
+    while (index < text.size()) {
+        const unsigned char lead = static_cast<unsigned char>(text[index]);
+        std::size_t length = 0;
+        if (lead <= 0x7f) {
+            length = 1;
+        } else if ((lead & 0xe0) == 0xc0) {
+            length = 2;
+        } else if ((lead & 0xf0) == 0xe0) {
+            length = 3;
+        } else if ((lead & 0xf8) == 0xf0) {
+            length = 4;
+        } else {
+            return false;
+        }
+        if (index + length > text.size()) return false;
+        for (std::size_t offset = 1; offset < length; ++offset) {
+            if ((static_cast<unsigned char>(text[index + offset]) & 0xc0) != 0x80) {
+                return false;
+            }
+        }
+        index += length;
+    }
+    return true;
+}
+
+Json::Value planned_response(astra::AgentSession& session,
+                             const astra::BaselineStrategy& strategy,
+                             const Json::Value& input) {
+    return session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        return strategy.decide(turn);
+    });
 }
 
 }  // namespace
@@ -130,6 +166,159 @@ ASTRA_TEST(session_accepts_only_results_from_an_earlier_sent_request) {
     astra::test::require(session.diagnostics().last_command_result ==
                              std::optional<std::string>("[exitCode:0]\nreal"),
                          "next-round command result must satisfy the pending command");
+}
+
+ASTRA_TEST(session_passes_bounded_current_task_history_to_the_real_strategy) {
+    astra::AgentSession session;
+    const astra::BaselineStrategy strategy;
+    auto input = session_fixture();
+    input["phaseTask"] = "依次读取 alpha.txt 和 beta.txt，然后提交答案。";
+
+    planned_response(session, strategy, input);
+
+    input["roundNo"] = 2;
+    input["llmResp"] = R"({"kind":"command","command":"cat alpha.txt"})";
+    const auto alpha_command = planned_response(session, strategy, input);
+    astra::test::require(alpha_command["executeCmd"] == "cat alpha.txt",
+                         "the first model command must be executed");
+
+    input["roundNo"] = 3;
+    input["llmResp"] = "";
+    input["lastCmdResult"] = "alpha 结果：甲";
+    const auto alpha_review = planned_response(session, strategy, input);
+    astra::test::require(alpha_review["prompt"].asString().find("cat alpha.txt") !=
+                             std::string::npos,
+                         "review prompt must associate the command with its result");
+
+    input["roundNo"] = 4;
+    input["llmResp"] = R"({"kind":"command","command":"cat beta.txt"})";
+    input["lastCmdResult"] = "";
+    planned_response(session, strategy, input);
+
+    input["roundNo"] = 5;
+    input["llmResp"] = "";
+    input["lastCmdResult"] = "beta 结果：乙";
+    const auto beta_review = planned_response(session, strategy, input);
+    const std::string accumulated_prompt = beta_review["prompt"].asString();
+    astra::test::require(accumulated_prompt.find("alpha 结果：甲") != std::string::npos &&
+                             accumulated_prompt.find("beta 结果：乙") != std::string::npos,
+                         "later review prompts must retain evidence from earlier commands");
+
+    input["roundNo"] = 6;
+    input["llmResp"] = R"({"kind":"answer","answer":"甲乙"})";
+    input["lastCmdResult"] = "";
+    planned_response(session, strategy, input);
+
+    input["roundNo"] = 7;
+    input["llmResp"] = "";
+    input["lastRoundRoleActionResults"]["10011"] = false;
+    input["errors"] = Json::Value(Json::arrayValue);
+    input["errors"].append(astra::test::parse_json_text(
+        R"({"errorCode":422,"description":"答案不正确，请重试"})"));
+    int duplicate_planner_calls = 0;
+    const auto retry = session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        ++duplicate_planner_calls;
+        return strategy.decide(turn);
+    });
+    const std::string retry_prompt = retry["prompt"].asString();
+    astra::test::require(retry_prompt.find("alpha 结果：甲") != std::string::npos &&
+                             retry_prompt.find("beta 结果：乙") != std::string::npos &&
+                             retry_prompt.find("甲乙") != std::string::npos &&
+                             retry_prompt.find("答案不正确，请重试") != std::string::npos,
+                         "wrong-answer retry must retain evidence, submitted answer, and error");
+
+    const auto duplicate = session.handle_planned(input, [&](const astra::TurnObservation&) {
+        ++duplicate_planner_calls;
+        return astra::Decision{};
+    });
+    astra::test::require(duplicate == retry && duplicate_planner_calls == 1,
+                         "duplicate input must be cached without invoking the planner");
+
+    input["roundNo"] = 8;
+    input["phaseTask"] = "全新的任务";
+    input["errors"] = Json::Value(Json::arrayValue);
+    const auto changed_task = planned_response(session, strategy, input);
+    astra::test::require(changed_task["prompt"].asString().find("alpha 结果：甲") ==
+                             std::string::npos,
+                         "a changed task must not inherit evidence from the old task");
+
+    input["roundNo"] = 1;
+    const auto reset = planned_response(session, strategy, input);
+    astra::test::require(reset["prompt"].asString().find("甲乙") == std::string::npos,
+                         "a round rollback must clear task history");
+}
+
+ASTRA_TEST(session_drops_stale_pending_results_when_the_task_changes) {
+    astra::AgentSession session;
+    auto input = session_fixture();
+    input["phaseTask"] = "旧任务";
+    session.handle_planned(input, [](const astra::TurnObservation&) {
+        astra::Decision decision;
+        decision.execute_command = "printf old-evidence";
+        return decision;
+    });
+
+    input["roundNo"] = 2;
+    input["phaseTask"] = "新任务";
+    input["lastCmdResult"] = "旧任务结果";
+    astra::TurnObservation planned_turn;
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        planned_turn = turn;
+        return astra::Decision{};
+    });
+
+    astra::test::require(planned_turn.last_command_result.empty() &&
+                             planned_turn.task_history.empty(),
+                         "an old pending result must not reach the replacement task");
+}
+
+ASTRA_TEST(session_does_not_attach_a_daily_prompt_reply_to_a_new_task) {
+    astra::AgentSession session;
+    const astra::BaselineStrategy strategy;
+    auto input = session_fixture();
+    session.handle(input, prompt_decision("daily planning prompt"));
+
+    input["roundNo"] = 2;
+    input["phaseTask"] = "刚刚开始的新任务";
+    input["llmResp"] = R"({"kind":"answer","answer":"旧的日常回复"})";
+    const auto response = planned_response(session, strategy, input);
+
+    astra::test::require(response.isMember("prompt") &&
+                             !response["roleCommandMap"].isMember("10011"),
+                         "a daily prompt reply must not become an answer for a new task");
+}
+
+ASTRA_TEST(session_bounds_task_history_without_splitting_utf8) {
+    astra::AgentSession session;
+    auto input = session_fixture();
+    input["phaseTask"] = "持续重试任务";
+    std::string payload;
+    for (int index = 0; index < 3000; ++index) payload += "界";
+
+    for (int round = 1; round <= 20; ++round) {
+        input["roundNo"] = round;
+        session.handle_planned(input, [&, round](const astra::TurnObservation&) {
+            astra::Decision decision;
+            decision.role_commands[10011].action = "submitAnswer";
+            decision.role_commands[10011].task_answer =
+                "answer-" + std::to_string(round) + ":" + payload;
+            return decision;
+        });
+    }
+
+    input["roundNo"] = 21;
+    std::string history;
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        history = turn.task_history;
+        return astra::Decision{};
+    });
+    astra::test::require(history.size() <= 32768,
+                         "task history must remain within the byte cap");
+    astra::test::require(is_valid_utf8(history),
+                         "task history truncation must preserve UTF-8 boundaries");
+    astra::test::require(history.find("answer-20:") != std::string::npos &&
+                             history.find("answer-1:") == std::string::npos,
+                         "bounded history must retain newest entries and evict oldest entries");
 }
 
 ASTRA_TEST(session_enforces_daily_llm_budget_and_records_news_once_per_day) {
