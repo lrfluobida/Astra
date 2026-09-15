@@ -3,7 +3,7 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dist_dir="$project_dir/dist"
-staging_dir="$dist_dir/SDK/CoreGeek"
+staging_dir="$dist_dir/CoreGeek"
 archive="$dist_dir/Astra-CoreGeek.tar.gz"
 
 case "$dist_dir" in
@@ -20,5 +20,5 @@ rm -rf "$dist_dir"
 mkdir -p "$staging_dir"
 cp "$project_dir/CMakeLists.txt" "$staging_dir/"
 cp -R "$project_dir/src" "$staging_dir/"
-tar -czf "$archive" -C "$dist_dir" SDK/CoreGeek
+tar -czf "$archive" -C "$dist_dir" CoreGeek
 echo "$archive"

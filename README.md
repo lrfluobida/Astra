@@ -28,7 +28,7 @@ bash scripts/build.sh debug
 bash scripts/package_sdk.sh
 ```
 
-产物为 `dist/Astra-CoreGeek.tar.gz`，目录根为 `SDK/CoreGeek/`。将其覆盖到公司提供的 SDK 后，应保留官方的 `SDK/ThirdParty/include/json/` 和 `SDK/ThirdParty/lib/libjsoncpp.so`，再从 `SDK/CoreGeek` 运行 CMake。默认构建类型为 Release，程序输出到 `SDK/bin/CoreGeek`；二进制通过相对 RPATH 加载官方 jsoncpp，无需修改系统库路径。
+产物为 `dist/Astra-CoreGeek.tar.gz`，目录根为 `CoreGeek/`，与官方示例压缩包一致。平台将它放在官方 SDK 中时，应保留相邻的 `ThirdParty/include/json/` 和 `ThirdParty/lib/libjsoncpp.so`，再从 `CoreGeek` 运行 CMake。默认构建类型为 Release，程序输出到同级 `bin/CoreGeek`；二进制通过相对 RPATH 加载官方 jsoncpp，无需修改系统库路径。
 
 ## 启动
 
