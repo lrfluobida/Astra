@@ -1,7 +1,7 @@
 #pragma once
 
 #include <map>
-#include <optional>
+#include "optional.hpp"
 #include <string>
 #include <vector>
 
@@ -10,6 +10,7 @@
 namespace astra {
 
 struct Pos {
+    constexpr Pos(int x_value = 0, int y_value = 0) : x(x_value), y(y_value) {}
     int x = 0;
     int y = 0;
 };
@@ -30,13 +31,13 @@ struct UnitObservation {
     Pos pos;
     RoleType role_type = RoleType::unknown;
     std::string role_type_raw;
-    std::optional<int> health;
-    std::optional<int> attack_power;
-    std::optional<int> attack_range;
-    std::optional<int> backpack_capacity;
+    astra::Optional<int> health;
+    astra::Optional<int> attack_power;
+    astra::Optional<int> attack_range;
+    astra::Optional<int> backpack_capacity;
     std::vector<std::string> backpack;
-    std::optional<int> level;
-    std::optional<int> cooldown;
+    astra::Optional<int> level;
+    astra::Optional<int> cooldown;
     bool owned = false;
 
     bool controllable() const;
@@ -54,16 +55,26 @@ struct MapObservation {
 };
 
 struct TaskPointObservation {
+    TaskPointObservation() = default;
+    TaskPointObservation(std::string type, Pos pos, int cooldown, int score, int gold,
+                         bool is_valid, astra::Optional<int> timeout = astra::nullopt)
+        : task_type(std::move(type)), position(pos), cooldown_rounds(cooldown),
+          score_reward(score), gold_reward(gold), valid(is_valid), timeout_rounds(timeout) {}
     std::string task_type;
     Pos position;
     int cooldown_rounds = 0;
     int score_reward = 0;
     int gold_reward = 0;
     bool valid = false;
-    std::optional<int> timeout_rounds;
+    astra::Optional<int> timeout_rounds;
 };
 
 struct TeamOurObservation {
+    TeamOurObservation() = default;
+    TeamOurObservation(std::string side, std::string id, std::string name, int money, int score,
+                       std::vector<TaskPointObservation> tasks, std::vector<UnitObservation> units)
+        : type(std::move(side)), team_id(std::move(id)), team_name(std::move(name)),
+          gold(money), total_score(score), player_tasks(std::move(tasks)), roles(std::move(units)) {}
     std::string type;
     std::string team_id;
     std::string team_name;
@@ -74,12 +85,17 @@ struct TeamOurObservation {
 };
 
 struct RobotObservation {
+    RobotObservation() = default;
+    RobotObservation(int robot_id, Pos position, std::string type, int hp,
+                     std::string state, astra::Optional<std::string> target = astra::nullopt)
+        : id(robot_id), pos(position), role_type(std::move(type)), health(hp),
+          abnormal_state(std::move(state)), target_team(std::move(target)) {}
     int id = 0;
     Pos pos;
     std::string role_type;
     int health = 0;
     std::string abnormal_state;
-    std::optional<std::string> target_team;
+    astra::Optional<std::string> target_team;
 };
 
 struct WorldNewsObservation {
@@ -88,11 +104,17 @@ struct WorldNewsObservation {
 };
 
 struct ShopItemObservation {
+    ShopItemObservation() = default;
+    ShopItemObservation(std::string item_name, int item_price)
+        : name(std::move(item_name)), price(item_price) {}
     std::string name;
     int price = 0;
 };
 
 struct ErrorObservation {
+    ErrorObservation() = default;
+    ErrorObservation(int error_code, std::string message)
+        : code(error_code), description(std::move(message)) {}
     int code = 0;
     std::string description;
 };
@@ -118,24 +140,24 @@ struct TurnObservation {
 };
 
 struct ParseResult {
-    std::optional<TurnObservation> turn;
+    astra::Optional<TurnObservation> turn;
     std::vector<std::string> errors;
 };
 
 struct RoleCommand {
     std::string action;
-    std::optional<std::string> controller_id;
+    astra::Optional<std::string> controller_id;
     std::vector<Pos> target_positions;
-    std::optional<std::string> name;
-    std::optional<int> number;
-    std::optional<std::string> task_answer;
+    astra::Optional<std::string> name;
+    astra::Optional<int> number;
+    astra::Optional<std::string> task_answer;
     std::vector<std::string> items;
 };
 
 struct Decision {
     std::map<int, RoleCommand> role_commands;
-    std::optional<std::string> prompt;
-    std::optional<std::string> execute_command;
+    astra::Optional<std::string> prompt;
+    astra::Optional<std::string> execute_command;
 };
 
 ParseResult parse_turn(const Json::Value& input);

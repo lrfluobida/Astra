@@ -36,7 +36,7 @@ bool has_pos(const std::vector<astra::Pos>& positions, astra::Pos expected) {
 ASTRA_TEST(navigation_routes_around_visible_occupancy) {
     auto turn = empty_turn(5, 5, {0, 2});
     turn.map.zones.push_back({{1, 2}, "stone"});
-    turn.robots.push_back({9, {1, 1}, "smallRobot", 40, "", std::nullopt});
+    turn.robots.push_back({9, {1, 1}, "smallRobot", 40, "", astra::nullopt});
     turn.map.zones.push_back({{1, 3}, "iron"});
 
     const auto step = astra::next_step_toward_any(turn, 1, {{4, 2}}, {});

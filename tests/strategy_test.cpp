@@ -3,7 +3,8 @@
 #include "strategy.hpp"
 #include "test_support.hpp"
 
-#include <optional>
+#include "optional.hpp"
+#include <algorithm>
 #include <set>
 
 namespace {
@@ -127,8 +128,8 @@ ASTRA_TEST(strategy_sells_highest_total_value_mineral_in_one_batch) {
     const auto* command = command_for(decision, 10010);
     astra::test::require(command && command->action == "sell",
                          "worker beside vendor must sell carried minerals");
-    astra::test::require(command->name == std::optional<std::string>("copper") &&
-                             command->number == std::optional<int>(2),
+    astra::test::require(command->name == astra::Optional<std::string>("copper") &&
+                             command->number == astra::Optional<int>(2),
                          "sell must choose highest total value and batch full quantity");
 }
 
@@ -206,7 +207,7 @@ ASTRA_TEST(strategy_accepts_nearby_ready_task_and_stays_during_active_task) {
     turn.team_our.roles.clear();
     turn.team_our.roles.push_back(pioneer(10011, {3, 3}));
     turn.team_our.player_tasks.push_back(
-        {"自进化类1", {4, 3}, 0, 50, 30, true, std::nullopt});
+        {"自进化类1", {4, 3}, 0, 50, 30, true, astra::nullopt});
 
     const auto ready = astra::BaselineStrategy().decide(turn);
     astra::test::require(command_for(ready, 10011) &&
@@ -224,7 +225,7 @@ ASTRA_TEST(strategy_returns_empty_for_unreachable_task_or_missing_night_station)
     turn.team_our.roles.clear();
     turn.team_our.roles.push_back(pioneer(10011, {1, 1}));
     turn.team_our.player_tasks.push_back(
-        {"自进化类1", {4, 4}, 0, 50, 30, true, std::nullopt});
+        {"自进化类1", {4, 4}, 0, 50, 30, true, astra::nullopt});
     for (int y = 0; y < turn.map.height; ++y) {
         turn.map.zones.push_back({{3, y}, "stone"});
     }
@@ -359,8 +360,8 @@ ASTRA_TEST(strategy_builds_distinct_far_rockets_before_worker_economy) {
     astra::test::require(first && second && first->action == "build" &&
                              second->action == "build",
                          "two available workers must start two rockets in the same round");
-    astra::test::require(first->name == std::optional<std::string>("rocket") &&
-                             second->name == std::optional<std::string>("rocket"),
+    astra::test::require(first->name == astra::Optional<std::string>("rocket") &&
+                             second->name == astra::Optional<std::string>("rocket"),
                          "opening weapon builds must both be rockets");
     const std::set<std::pair<int, int>> targets = {
         {first->target_positions.front().x, first->target_positions.front().y},
@@ -406,7 +407,7 @@ ASTRA_TEST(strategy_buys_and_uses_upgrades_on_far_rockets_first) {
     const auto purchase = astra::BaselineStrategy().decide(turn);
     const auto* buy = command_for(purchase, 10010);
     astra::test::require(buy && buy->action == "buy" &&
-                             buy->name == std::optional<std::string>("WeaponUpgradeVoucher1"),
+                             buy->name == astra::Optional<std::string>("WeaponUpgradeVoucher1"),
                          "first upgrade purchase must be a level1 weapon voucher");
 
     turn.team_our.roles.front().pos = {12, 10};
@@ -434,7 +435,7 @@ ASTRA_TEST(strategy_buys_and_uses_upgrades_on_far_rockets_first) {
     const auto tier_two = astra::BaselineStrategy().decide(turn);
     buy = command_for(tier_two, 10010);
     astra::test::require(buy && buy->action == "buy" &&
-                             buy->name == std::optional<std::string>("WeaponUpgradeVoucher2"),
+                             buy->name == astra::Optional<std::string>("WeaponUpgradeVoucher2"),
                          "both far rockets must continue toward level3 before upgrading near");
 }
 
@@ -478,7 +479,7 @@ ASTRA_TEST(strategy_builds_only_the_front_half_wall_with_reserved_stone) {
     const auto decision = astra::BaselineStrategy().decide(turn);
     const auto* build = command_for(decision, 10012);
     astra::test::require(layout && build && build->action == "build" &&
-                             build->name == std::optional<std::string>("wall"),
+                             build->name == astra::Optional<std::string>("wall"),
                          "prepared wall worker must build a wall");
     astra::test::require(std::any_of(layout->front_wall_tiles.begin(),
                                     layout->front_wall_tiles.end(),

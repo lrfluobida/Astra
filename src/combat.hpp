@@ -2,7 +2,7 @@
 
 #include "actions.hpp"
 
-#include <optional>
+#include "optional.hpp"
 #include <vector>
 
 namespace astra {
@@ -12,7 +12,7 @@ struct AttackPlan {
     long long utility = 0;
 };
 
-std::optional<AttackPlan> plan_weapon_attack(const TurnObservation& turn,
+astra::Optional<AttackPlan> plan_weapon_attack(const TurnObservation& turn,
                                              const UnitObservation& weapon);
 
 std::vector<CandidateAction> combat_candidates(const TurnObservation& turn,

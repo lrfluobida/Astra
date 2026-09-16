@@ -412,11 +412,11 @@ ASTRA_TEST(actions_reject_unknown_build_area_and_choose_one_top_level_request) {
     astra::ArbitrationRules rules;
     rules.daily_llm_remaining = 1;
     const std::vector<astra::TopLevelCandidate> requests = {
-        {astra::TopLevelKind::prompt, "分析新闻", 50, false, std::nullopt},
-        {astra::TopLevelKind::prompt, "解决任务", 100, false, std::nullopt},
+        {astra::TopLevelKind::prompt, "分析新闻", 50, false, astra::nullopt},
+        {astra::TopLevelKind::prompt, "解决任务", 100, false, astra::nullopt},
     };
     const auto top = astra::arbitrate(turn, {}, requests, rules);
-    astra::test::require(top.decision.prompt == std::optional<std::string>("解决任务"),
+    astra::test::require(top.decision.prompt == astra::Optional<std::string>("解决任务"),
                          "only the highest-priority prompt may be sent");
 }
 
@@ -461,7 +461,7 @@ ASTRA_TEST(actions_validate_collect_daylight_target_and_health) {
     astra::test::require(astra::arbitrate(turn, {collect}, {}, {}).decision.role_commands.empty(),
                          "collect must stop at night start");
     turn.round_no = 70;
-    for (auto health : {std::optional<int>{}, std::optional<int>{0}, std::optional<int>{-1}}) {
+    for (auto health : {astra::Optional<int>{}, astra::Optional<int>{0}, astra::Optional<int>{-1}}) {
         auto unhealthy = turn;
         for (auto& unit : unhealthy.team_our.roles) {
             if (unit.id == 10010) unit.health = health;
@@ -528,7 +528,7 @@ ASTRA_TEST(actions_validate_accept_task_owner_cooldown_and_health) {
         astra::arbitrate(turn, {accept}, {}, {}).decision.role_commands.empty(),
         "invalid own task point must reject acceptance");
     turn.team_our.player_tasks.front().valid = true;
-    for (auto health : {std::optional<int>{}, std::optional<int>{0}, std::optional<int>{-1}}) {
+    for (auto health : {astra::Optional<int>{}, astra::Optional<int>{0}, astra::Optional<int>{-1}}) {
         auto unhealthy = turn;
         for (auto& unit : unhealthy.team_our.roles) {
             if (unit.id == 10011) unit.health = health;

@@ -33,60 +33,60 @@ struct JsonConversion<Json::Value> {
 };
 
 template <typename T>
-std::optional<T> required(const Json::Value& object,
+astra::Optional<T> required(const Json::Value& object,
                           const char* key,
                           const std::string& path,
                           std::vector<std::string>& errors) {
     if (!object.isObject() || !object.isMember(key)) {
         errors.push_back(path + "." + key + " is required");
-        return std::nullopt;
+        return astra::nullopt;
     }
     const Json::Value& value = object[key];
     if (!JsonConversion<T>::valid(value)) {
         errors.push_back(path + "." + key + " has an invalid type");
-        return std::nullopt;
+        return astra::nullopt;
     }
     return JsonConversion<T>::get(value);
 }
 
 template <typename T>
-std::optional<T> optional_value(const Json::Value& object,
+astra::Optional<T> optional_value(const Json::Value& object,
                                 const char* key,
                                 const std::string& path,
                                 std::vector<std::string>& errors) {
     if (!object.isObject() || !object.isMember(key) || object[key].isNull()) {
-        return std::nullopt;
+        return astra::nullopt;
     }
     const Json::Value& value = object[key];
     if (!JsonConversion<T>::valid(value)) {
         errors.push_back(path + "." + key + " has an invalid type");
-        return std::nullopt;
+        return astra::nullopt;
     }
     return JsonConversion<T>::get(value);
 }
 
-std::optional<Pos> parse_pos(const Json::Value& value,
+astra::Optional<Pos> parse_pos(const Json::Value& value,
                              const std::string& path,
                              std::vector<std::string>& errors) {
     if (!value.isObject()) {
         errors.push_back(path + " must be an object");
-        return std::nullopt;
+        return astra::nullopt;
     }
     const auto x = required<int>(value, "x", path, errors);
     const auto y = required<int>(value, "y", path, errors);
     if (!x || !y) {
-        return std::nullopt;
+        return astra::nullopt;
     }
     return Pos{*x, *y};
 }
 
-std::optional<Pos> required_pos(const Json::Value& object,
+astra::Optional<Pos> required_pos(const Json::Value& object,
                                 const char* key,
                                 const std::string& path,
                                 std::vector<std::string>& errors) {
     if (!object.isObject() || !object.isMember(key)) {
         errors.push_back(path + "." + key + " is required");
-        return std::nullopt;
+        return astra::nullopt;
     }
     return parse_pos(object[key], path + "." + key, errors);
 }
@@ -102,19 +102,19 @@ RoleType parse_role_type(const std::string& value) {
     return RoleType::unknown;
 }
 
-std::optional<UnitObservation> parse_unit(const Json::Value& value,
+astra::Optional<UnitObservation> parse_unit(const Json::Value& value,
                                           const std::string& path,
                                           bool owned,
                                           std::vector<std::string>& errors) {
     if (!value.isObject()) {
         errors.push_back(path + " must be an object");
-        return std::nullopt;
+        return astra::nullopt;
     }
     const auto id = required<int>(value, "id", path, errors);
     const auto pos = required_pos(value, "pos", path, errors);
     const auto role_type = required<std::string>(value, "roleType", path, errors);
     if (!id || !pos || !role_type) {
-        return std::nullopt;
+        return astra::nullopt;
     }
 
     UnitObservation unit;
@@ -154,18 +154,18 @@ std::optional<UnitObservation> parse_unit(const Json::Value& value,
     return unit;
 }
 
-std::optional<MapObservation> parse_map(const Json::Value& value,
+astra::Optional<MapObservation> parse_map(const Json::Value& value,
                                         std::vector<std::string>& errors) {
     if (!value.isObject()) {
         errors.push_back("$.mapInfo must be an object");
-        return std::nullopt;
+        return astra::nullopt;
     }
     const auto width = required<int>(value, "width", "$.mapInfo", errors);
     const auto height = required<int>(value, "height", "$.mapInfo", errors);
     const auto zones = required<Json::Value>(value, "zones", "$.mapInfo", errors);
     if (!width || !height || !zones || !zones->isArray()) {
         if (zones && !zones->isArray()) errors.push_back("$.mapInfo.zones must be an array");
-        return std::nullopt;
+        return astra::nullopt;
     }
 
     MapObservation map;
@@ -185,12 +185,12 @@ std::optional<MapObservation> parse_map(const Json::Value& value,
     return map;
 }
 
-std::optional<TaskPointObservation> parse_task(const Json::Value& value,
+astra::Optional<TaskPointObservation> parse_task(const Json::Value& value,
                                                const std::string& path,
                                                std::vector<std::string>& errors) {
     if (!value.isObject()) {
         errors.push_back(path + " must be an object");
-        return std::nullopt;
+        return astra::nullopt;
     }
     const auto task_type = required<std::string>(value, "taskType", path, errors);
     const auto position = required_pos(value, "taskPosition", path, errors);
@@ -199,7 +199,7 @@ std::optional<TaskPointObservation> parse_task(const Json::Value& value,
     const auto gold = required<int>(value, "goldReward", path, errors);
     const auto valid = required<bool>(value, "isValid", path, errors);
     if (!task_type || !position || !cooldown || !score || !gold || !valid) {
-        return std::nullopt;
+        return astra::nullopt;
     }
     return TaskPointObservation{*task_type,
                                 *position,
@@ -210,11 +210,11 @@ std::optional<TaskPointObservation> parse_task(const Json::Value& value,
                                 optional_value<int>(value, "timeoutRounds", path, errors)};
 }
 
-std::optional<TeamOurObservation> parse_our_team(const Json::Value& value,
+astra::Optional<TeamOurObservation> parse_our_team(const Json::Value& value,
                                                  std::vector<std::string>& errors) {
     if (!value.isObject()) {
         errors.push_back("$.teamOur must be an object");
-        return std::nullopt;
+        return astra::nullopt;
     }
     const auto type = required<std::string>(value, "type", "$.teamOur", errors);
     const auto team_id = required<std::string>(value, "teamId", "$.teamOur", errors);
@@ -227,7 +227,7 @@ std::optional<TeamOurObservation> parse_our_team(const Json::Value& value,
         !tasks->isArray() || !roles->isArray()) {
         if (tasks && !tasks->isArray()) errors.push_back("$.teamOur.playerTasks must be an array");
         if (roles && !roles->isArray()) errors.push_back("$.teamOur.roles must be an array");
-        return std::nullopt;
+        return astra::nullopt;
     }
 
     TeamOurObservation team{*type, *team_id, *team_name, *gold, *score, {}, {}};
@@ -434,7 +434,9 @@ ParseResult parse_turn(const Json::Value& input) {
 
 Json::Value encode_response(const Decision& decision) {
     Json::Value role_commands(Json::objectValue);
-    for (const auto& [role_id, command] : decision.role_commands) {
+    for (const auto& role_id_entry : decision.role_commands) {
+        const auto& role_id = role_id_entry.first;
+        const auto& command = role_id_entry.second;
         Json::Value encoded(Json::objectValue);
         encoded["action"] = command.action;
         if (command.controller_id) encoded["controllerId"] = *command.controller_id;

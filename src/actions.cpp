@@ -43,18 +43,20 @@ bool is_weapon(const UnitObservation& unit) {
 }
 
 struct UpgradeVoucher {
+    UpgradeVoucher(RoleType type, int level) : target_type(type), required_level(level) {}
+    UpgradeVoucher() = default;
     RoleType target_type = RoleType::unknown;
     int required_level = 0;
 };
 
-std::optional<UpgradeVoucher> upgrade_voucher(const std::string& name) {
+astra::Optional<UpgradeVoucher> upgrade_voucher(const std::string& name) {
     if (name == "WeaponUpgradeVoucher1") return UpgradeVoucher{RoleType::unknown, 1};
     if (name == "WeaponUpgradeVoucher2") return UpgradeVoucher{RoleType::unknown, 2};
     if (name == "WallUpgradeVoucher1") return UpgradeVoucher{RoleType::wall, 1};
     if (name == "WallUpgradeVoucher2") return UpgradeVoucher{RoleType::wall, 2};
     if (name == "StationUpgradeVoucher1") return UpgradeVoucher{RoleType::station, 1};
     if (name == "StationUpgradeVoucher2") return UpgradeVoucher{RoleType::station, 2};
-    return std::nullopt;
+    return astra::nullopt;
 }
 
 bool matches_upgrade_target(const UnitObservation& unit, RoleType target_type) {
@@ -356,8 +358,8 @@ std::string validate_accept_task(const TurnObservation& turn,
 std::string validate_action(const TurnObservation& turn,
                             const CandidateAction& candidate,
                             const ArbitrationRules& rules,
-                            std::optional<int>& controller,
-                            std::optional<Pos>& move_destination) {
+                            astra::Optional<int>& controller,
+                            astra::Optional<Pos>& move_destination) {
     if (candidate.command.action == "move") {
         Pos destination;
         const auto error = validate_move(turn, candidate, destination);
@@ -432,8 +434,8 @@ ArbitrationResult arbitrate(const TurnObservation& turn,
 
     for (const std::size_t index : order) {
         const auto& candidate = actions[index];
-        std::optional<int> controller;
-        std::optional<Pos> move_destination;
+        astra::Optional<int> controller;
+        astra::Optional<Pos> move_destination;
         std::string reason =
             validate_action(turn, candidate, rules, controller, move_destination);
 
@@ -449,13 +451,17 @@ ArbitrationResult arbitrate(const TurnObservation& turn,
             reason = "shared gold reservation exceeds available gold";
         }
         if (reason.empty()) {
-            for (const auto& [owner_id, items] : candidate.reservation.items) {
+            for (const auto& owner_id_entry : candidate.reservation.items) {
+                const auto& owner_id = owner_id_entry.first;
+                const auto& items = owner_id_entry.second;
                 const auto* owner = find_own_unit(turn, owner_id);
                 if (!owner) {
                     reason = "item reservation owner is missing";
                     break;
                 }
-                for (const auto& [name, count] : items) {
+                for (const auto& name_entry : items) {
+                    const auto& name = name_entry.first;
+                    const auto& count = name_entry.second;
                     if (count <= 0 || reserved_items[owner_id][name] + count > item_count(*owner, name)) {
                         reason = "item reservation exceeds available inventory";
                         break;
@@ -487,8 +493,10 @@ ArbitrationResult arbitrate(const TurnObservation& turn,
         }
         if (move_destination) move_destinations.push_back(*move_destination);
         result.reserved_gold += candidate.reservation.gold;
-        for (const auto& [owner_id, items] : candidate.reservation.items) {
-            for (const auto& [name, count] : items) reserved_items[owner_id][name] += count;
+        for (const auto& owner_id_entry : candidate.reservation.items) {
+            const auto& owner_id = owner_id_entry.first;
+            const auto& items = owner_id_entry.second;
+            for (const auto& item : items) reserved_items[owner_id][item.first] += item.second;
         }
         if (robot_summon) ++accepted_summon_orders;
     }
@@ -516,7 +524,7 @@ ArbitrationResult arbitrate(const TurnObservation& turn,
             (candidate.requires_active_task && !rules.task_active)) {
             continue;
         }
-        const std::optional<int> pioneer = candidate.pioneer_id ? candidate.pioneer_id : rules.pioneer_id;
+        const astra::Optional<int> pioneer = candidate.pioneer_id ? candidate.pioneer_id : rules.pioneer_id;
         if (pioneer) {
             const auto action = result.decision.role_commands.find(*pioneer);
             if (action != result.decision.role_commands.end() &&

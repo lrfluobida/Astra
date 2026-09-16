@@ -7,15 +7,17 @@
 #include <deque>
 #include <functional>
 #include <map>
-#include <optional>
+#include "optional.hpp"
 #include <string>
 #include <vector>
 
 namespace astra {
 
 struct PendingRequest {
+    PendingRequest() = default;
+    PendingRequest(int round, astra::Optional<int> serial) : sent_round(round), task_serial(serial) {}
     int sent_round = 0;
-    std::optional<int> task_serial;
+    astra::Optional<int> task_serial;
 };
 
 struct SessionDiagnostics {
@@ -24,10 +26,10 @@ struct SessionDiagnostics {
     int task_serial = 0;
     int daily_llm_used = 0;
     std::map<int, WorldNewsObservation> news_by_day;
-    std::optional<PendingRequest> pending_prompt;
-    std::optional<PendingRequest> pending_command;
-    std::optional<std::string> last_llm_result;
-    std::optional<std::string> last_command_result;
+    astra::Optional<PendingRequest> pending_prompt;
+    astra::Optional<PendingRequest> pending_command;
+    astra::Optional<std::string> last_llm_result;
+    astra::Optional<std::string> last_command_result;
     std::string degradation_reason;
 };
 
@@ -51,6 +53,9 @@ public:
 
 private:
     struct PendingSummonOrders {
+        PendingSummonOrders() = default;
+        PendingSummonOrders(int day_value, int round, std::vector<int> actor_ids)
+            : day(day_value), sent_round(round), actors(std::move(actor_ids)) {}
         int day = 0;
         int sent_round = 0;
         std::vector<int> actors;
@@ -62,16 +67,16 @@ private:
     void reset_match();
 
     SessionDiagnostics diagnostics_;
-    std::optional<int> last_round_;
-    std::optional<int> current_day_;
+    astra::Optional<int> last_round_;
+    astra::Optional<int> current_day_;
     int daily_summon_orders_used_ = 0;
-    std::optional<PendingSummonOrders> pending_summon_orders_;
+    astra::Optional<PendingSummonOrders> pending_summon_orders_;
     std::string team_id_;
     std::string team_type_;
     std::string previous_phase_task_;
-    std::optional<int> active_task_serial_;
-    std::optional<int> pending_accept_actor_;
-    std::optional<int> pending_accept_round_;
+    astra::Optional<int> active_task_serial_;
+    astra::Optional<int> pending_accept_actor_;
+    astra::Optional<int> pending_accept_round_;
     std::deque<std::string> task_history_entries_;
     std::string pending_command_text_;
     Json::Value last_request_;

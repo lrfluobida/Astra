@@ -125,18 +125,18 @@ std::vector<Pos> task_interaction_cells(const TurnObservation& turn,
     return result;
 }
 
-std::optional<PathStep> next_step_toward_any(const TurnObservation& turn,
+astra::Optional<PathStep> next_step_toward_any(const TurnObservation& turn,
                                              int actor_id,
                                              const std::vector<Pos>& goals,
                                              const NavigationReservations& reservations) {
     const UnitObservation* actor = find_actor(turn, actor_id);
     if (!actor || turn.map.width <= 0 || turn.map.height <= 0 || goals.empty()) {
-        return std::nullopt;
+        return astra::nullopt;
     }
 
     auto blocked = observed_occupancy(turn);
     for (const auto& destination : reservations.destinations) block(blocked, turn, destination);
-    if (!in_bounds(turn, actor->pos)) return std::nullopt;
+    if (!in_bounds(turn, actor->pos)) return astra::nullopt;
     const int start = index_of(turn, actor->pos);
     blocked[start] = false;
 
@@ -178,7 +178,7 @@ std::optional<PathStep> next_step_toward_any(const TurnObservation& turn,
             open.push(next_index);
         }
     }
-    if (reached < 0) return std::nullopt;
+    if (reached < 0) return astra::nullopt;
 
     int first = reached;
     while (parent[first] != start) first = parent[first];

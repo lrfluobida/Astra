@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <functional>
 #include <map>
-#include <optional>
+#include "optional.hpp"
 #include <set>
 #include <tuple>
 
@@ -71,11 +71,11 @@ const ZoneObservation* first_weapon_shop(const TurnObservation& turn) {
     return nullptr;
 }
 
-std::optional<int> shop_price(const TurnObservation& turn, const std::string& name) {
+astra::Optional<int> shop_price(const TurnObservation& turn, const std::string& name) {
     for (const auto& item : turn.weapon_shop) {
         if (item.name == name && item.price >= 0) return item.price;
     }
-    return std::nullopt;
+    return astra::nullopt;
 }
 
 struct UpgradeTarget {
@@ -96,7 +96,7 @@ bool all_level_three(const TurnObservation& turn, const std::vector<Pos>& positi
     if (positions.empty()) return false;
     for (const auto& pos : positions) {
         const auto* building = own_building_at(turn, pos, type);
-        if (!building || building->level != std::optional<int>(3)) return false;
+        if (!building || building->level != astra::Optional<int>(3)) return false;
     }
     return true;
 }
@@ -109,18 +109,18 @@ bool rockets_complete(const TurnObservation& turn, const DefenseLayout& layout) 
 bool defense_complete(const TurnObservation& turn, const DefenseLayout& layout) {
     if (!rockets_complete(turn, layout) ||
         !all_level_three(turn, layout.front_wall_tiles, RoleType::wall)) return false;
-    return std::any_of(turn.team_our.roles.begin(), turn.team_our.roles.end(), [](const auto& unit) {
+    return std::any_of(turn.team_our.roles.begin(), turn.team_our.roles.end(), [](const UnitObservation& unit) {
         return unit.role_type == RoleType::station && unit.health && *unit.health > 0 &&
-               unit.level == std::optional<int>(3);
+               unit.level == astra::Optional<int>(3);
     });
 }
 
-std::optional<UpgradeTarget> choose_upgrade_target(const TurnObservation& turn,
+astra::Optional<UpgradeTarget> choose_upgrade_target(const TurnObservation& turn,
                                                    const DefenseLayout& layout) {
     for (const int level : {1, 2}) {
         for (const auto& pos : layout.far_rockets) {
             const auto* weapon = weapon_at(turn, pos);
-            if (weapon && weapon->level == std::optional<int>(level)) {
+            if (weapon && weapon->level == astra::Optional<int>(level)) {
                 return UpgradeTarget{pos,
                                      level == 1 ? "WeaponUpgradeVoucher1"
                                                 : "WeaponUpgradeVoucher2"};
@@ -133,25 +133,25 @@ std::optional<UpgradeTarget> choose_upgrade_target(const TurnObservation& turn,
                              *near->level == 1 ? "WeaponUpgradeVoucher1"
                                                : "WeaponUpgradeVoucher2"};
     }
-    if (!rockets_complete(turn, layout)) return std::nullopt;
+    if (!rockets_complete(turn, layout)) return astra::nullopt;
     for (const auto& pos : layout.front_wall_tiles) {
-        if (!own_building_at(turn, pos, RoleType::wall)) return std::nullopt;
+        if (!own_building_at(turn, pos, RoleType::wall)) return astra::nullopt;
     }
     for (const auto& pos : layout.front_wall_tiles) {
         const auto* wall = own_building_at(turn, pos, RoleType::wall);
-        if (wall->level == std::optional<int>(1) || wall->level == std::optional<int>(2)) {
+        if (wall->level == astra::Optional<int>(1) || wall->level == astra::Optional<int>(2)) {
             return UpgradeTarget{pos, *wall->level == 1 ? "WallUpgradeVoucher1" : "WallUpgradeVoucher2"};
         }
-        if (wall->level != std::optional<int>(3)) return std::nullopt;
+        if (wall->level != astra::Optional<int>(3)) return astra::nullopt;
     }
     for (const auto& unit : turn.team_our.roles) {
         if (unit.role_type == RoleType::station && unit.health && *unit.health > 0 &&
-            (unit.level == std::optional<int>(1) || unit.level == std::optional<int>(2))) {
+            (unit.level == astra::Optional<int>(1) || unit.level == astra::Optional<int>(2))) {
             return UpgradeTarget{unit.pos, *unit.level == 1 ? "StationUpgradeVoucher1"
                                                           : "StationUpgradeVoucher2"};
         }
     }
-    return std::nullopt;
+    return astra::nullopt;
 }
 
 std::map<std::string, int> positive_prices(const TurnObservation& turn) {
@@ -172,18 +172,20 @@ std::map<std::string, int> inventory_counts(const UnitObservation& worker) {
 
 int carried_mineral_count(const UnitObservation& unit) {
     int total = 0;
-    for (const auto& [name, count] : inventory_counts(unit)) {
+    for (const auto& name_entry : inventory_counts(unit)) {
+        const auto& name = name_entry.first;
+        const auto& count = name_entry.second;
         (void)name;
         total += count;
     }
     return total;
 }
 
-std::optional<ZoneObservation> first_vendor(const TurnObservation& turn) {
+astra::Optional<ZoneObservation> first_vendor(const TurnObservation& turn) {
     for (const auto& zone : turn.map.zones) {
         if (zone.neutral_type == "vendor") return zone;
     }
-    return std::nullopt;
+    return astra::nullopt;
 }
 
 UnitObservation* find_worker(TurnObservation& turn, int id) {
@@ -203,15 +205,17 @@ CandidateAction move_candidate(const UnitObservation& worker, Pos target, int pr
     return candidate;
 }
 
-std::optional<CandidateAction> adjacent_sell(const TurnObservation& turn,
+astra::Optional<CandidateAction> adjacent_sell(const TurnObservation& turn,
                                              const UnitObservation& worker,
                                              const std::map<std::string, int>& prices,
                                              int priority) {
     const auto vendor = first_vendor(turn);
-    if (!vendor || distance(worker.pos, vendor->pos) > 1) return std::nullopt;
+    if (!vendor || distance(worker.pos, vendor->pos) > 1) return astra::nullopt;
     const auto counts = inventory_counts(worker);
-    std::optional<std::tuple<long long, int, std::string>> best;
-    for (const auto& [name, count] : counts) {
+    astra::Optional<std::tuple<long long, int, std::string>> best;
+    for (const auto& name_entry : counts) {
+        const auto& name = name_entry.first;
+        const auto& count = name_entry.second;
         const auto price = prices.find(name);
         if (price == prices.end() || count <= 0) continue;
         const auto candidate = std::make_tuple(static_cast<long long>(price->second) * count,
@@ -219,7 +223,7 @@ std::optional<CandidateAction> adjacent_sell(const TurnObservation& turn,
                                                name);
         if (!best || candidate > *best) best = candidate;
     }
-    if (!best) return std::nullopt;
+    if (!best) return astra::nullopt;
 
     const std::string name = std::get<2>(*best);
     const int count = counts.at(name);
@@ -234,13 +238,13 @@ std::optional<CandidateAction> adjacent_sell(const TurnObservation& turn,
     return candidate;
 }
 
-std::optional<CandidateAction> adjacent_collect(const TurnObservation& turn,
+astra::Optional<CandidateAction> adjacent_collect(const TurnObservation& turn,
                                                 const UnitObservation& worker,
                                                 const std::map<std::string, int>& prices,
                                                 int priority) {
     if (!worker.backpack_capacity || *worker.backpack_capacity <= 0 ||
         worker.backpack.size() >= static_cast<std::size_t>(*worker.backpack_capacity)) {
-        return std::nullopt;
+        return astra::nullopt;
     }
     const ZoneObservation* best = nullptr;
     int best_price = 0;
@@ -254,7 +258,7 @@ std::optional<CandidateAction> adjacent_collect(const TurnObservation& turn,
             best_price = price->second;
         }
     }
-    if (!best) return std::nullopt;
+    if (!best) return astra::nullopt;
 
     CandidateAction candidate;
     candidate.action_key = worker.id;
@@ -266,6 +270,9 @@ std::optional<CandidateAction> adjacent_collect(const TurnObservation& turn,
 }
 
 struct MineChoice {
+    MineChoice() = default;
+    MineChoice(const ZoneObservation* zone, PathStep route, int amount, int unit_price, int rounds)
+        : mine(zone), path(route), quantity(amount), price(unit_price), total_rounds(rounds) {}
     const ZoneObservation* mine = nullptr;
     PathStep path;
     int quantity = 0;
@@ -290,7 +297,7 @@ bool better_mine(const MineChoice& left, const MineChoice& right) {
            std::tie(right.mine->pos.x, right.mine->pos.y);
 }
 
-std::optional<PathStep> path_to_vendor(const TurnObservation& turn,
+astra::Optional<PathStep> path_to_vendor(const TurnObservation& turn,
                                        const UnitObservation& worker,
                                        const ZoneObservation& vendor,
                                        const NavigationReservations& reservations) {
@@ -300,7 +307,7 @@ std::optional<PathStep> path_to_vendor(const TurnObservation& turn,
                                 reservations);
 }
 
-std::optional<CandidateAction> economic_move(const TurnObservation& turn,
+astra::Optional<CandidateAction> economic_move(const TurnObservation& turn,
                                              const UnitObservation& worker,
                                              const std::map<std::string, int>& prices,
                                              const NavigationReservations& reservations,
@@ -308,13 +315,15 @@ std::optional<CandidateAction> economic_move(const TurnObservation& turn,
     const auto vendor = first_vendor(turn);
     if (!vendor || !worker.backpack_capacity || *worker.backpack_capacity <= 0 ||
         worker.backpack.size() > static_cast<std::size_t>(*worker.backpack_capacity)) {
-        return std::nullopt;
+        return astra::nullopt;
     }
     const int free_capacity =
         *worker.backpack_capacity - static_cast<int>(worker.backpack.size());
     const auto carried = inventory_counts(worker);
     int carried_count = 0;
-    for (const auto& [name, count] : carried) {
+    for (const auto& name_entry : carried) {
+        const auto& name = name_entry.first;
+        const auto& count = name_entry.second;
         (void)name;
         carried_count += count;
     }
@@ -323,12 +332,12 @@ std::optional<CandidateAction> economic_move(const TurnObservation& turn,
         if (vendor_path && vendor_path->distance > 0) {
             return move_candidate(worker, vendor_path->next, priority);
         }
-        return std::nullopt;
+        return astra::nullopt;
     }
     const int quantity = std::min(10, free_capacity);
-    if (quantity <= 0) return std::nullopt;
+    if (quantity <= 0) return astra::nullopt;
 
-    std::optional<MineChoice> best;
+    astra::Optional<MineChoice> best;
     for (const auto& zone : turn.map.zones) {
         const auto price = prices.find(zone.neutral_type);
         if (price == prices.end()) continue;
@@ -352,7 +361,7 @@ std::optional<CandidateAction> economic_move(const TurnObservation& turn,
         if (choice.total_rounds <= 0) continue;
         if (!best || better_mine(choice, *best)) best = choice;
     }
-    if (!best || best->path.distance == 0) return std::nullopt;
+    if (!best || best->path.distance == 0) return astra::nullopt;
 
     const int round_in_day = (turn.round_no - 1) % 130 + 1;
     const int daylight_remaining = 70 - round_in_day + 1;
@@ -363,7 +372,7 @@ std::optional<CandidateAction> economic_move(const TurnObservation& turn,
                 return move_candidate(worker, vendor_path->next, priority);
             }
         }
-        return std::nullopt;
+        return astra::nullopt;
     }
     return move_candidate(worker, best->path.next, priority);
 }
@@ -388,7 +397,7 @@ std::map<int, Pos> defense_posts(const TurnObservation& turn,
             actors.push_back(actor);
         }
     }
-    std::sort(actors.begin(), actors.end(), [](const auto* left, const auto* right) {
+    std::sort(actors.begin(), actors.end(), [](const UnitObservation* left, const UnitObservation* right) {
         return left->id < right->id;
     });
     std::vector<const UnitObservation*> weapons;
@@ -397,7 +406,7 @@ std::map<int, Pos> defense_posts(const TurnObservation& turn,
             (unit.role_type == RoleType::rocket || unit.role_type == RoleType::gatling ||
              unit.role_type == RoleType::railgun)) weapons.push_back(&unit);
     }
-    std::sort(weapons.begin(), weapons.end(), [](const auto* left, const auto* right) {
+    std::sort(weapons.begin(), weapons.end(), [](const UnitObservation* left, const UnitObservation* right) {
         return left->id < right->id;
     });
     auto best = assigned;
@@ -414,7 +423,9 @@ std::map<int, Pos> defense_posts(const TurnObservation& turn,
         search(index + 1, total_distance);
         const auto* actor = actors[index];
         auto reserved = reservations;
-        for (const auto& [id, pos] : assigned) {
+        for (const auto& id_entry : assigned) {
+            const auto& id = id_entry.first;
+            const auto& pos = id_entry.second;
             (void)id;
             reserved.destinations.push_back(pos);
         }
@@ -422,7 +433,7 @@ std::map<int, Pos> defense_posts(const TurnObservation& turn,
             if (used_weapons.count(weapon->id) != 0) continue;
             const auto path = next_step_toward_any(
                 turn, actor->id, interaction_cells(turn, weapon->pos), reserved);
-            if (!path || std::any_of(assigned.begin(), assigned.end(), [&](const auto& entry) {
+            if (!path || std::any_of(assigned.begin(), assigned.end(), [&](const std::pair<const int, Pos>& entry) {
                     return same_pos(entry.second, path->goal);
                 })) continue;
             assigned[actor->id] = path->goal;
@@ -436,19 +447,19 @@ std::map<int, Pos> defense_posts(const TurnObservation& turn,
     return best;
 }
 
-std::optional<CandidateAction> return_move(const TurnObservation& turn,
+astra::Optional<CandidateAction> return_move(const TurnObservation& turn,
                                            const UnitObservation& actor,
                                            const NavigationReservations& reservations,
                                            const std::vector<Pos>& goals,
                                            int priority) {
     const auto path = next_step_toward_any(turn, actor.id, goals, reservations);
-    if (!path || path->distance == 0) return std::nullopt;
+    if (!path || path->distance == 0) return astra::nullopt;
     auto candidate = move_candidate(actor, path->next, priority);
     candidate.source = "defense.return";
     return candidate;
 }
 
-std::optional<CandidateAction> rocket_build_action(
+astra::Optional<CandidateAction> rocket_build_action(
     const TurnObservation& turn,
     const UnitObservation& worker,
     Pos target,
@@ -467,13 +478,13 @@ std::optional<CandidateAction> rocket_build_action(
     }
     const auto path = next_step_toward_any(
         turn, worker.id, interaction_cells(turn, target), reservations);
-    if (!path || path->distance == 0) return std::nullopt;
+    if (!path || path->distance == 0) return astra::nullopt;
     auto candidate = move_candidate(worker, path->next, priority);
     candidate.source = "defense.move_to_rocket_site";
     return candidate;
 }
 
-std::optional<CandidateAction> building_upgrade_action(
+astra::Optional<CandidateAction> building_upgrade_action(
     const TurnObservation& turn,
     const UnitObservation& worker,
     const UpgradeTarget& target,
@@ -493,7 +504,7 @@ std::optional<CandidateAction> building_upgrade_action(
         }
         const auto path = next_step_toward_any(
             turn, worker.id, interaction_cells(turn, target.pos), reservations);
-        if (!path || path->distance == 0) return std::nullopt;
+        if (!path || path->distance == 0) return astra::nullopt;
         auto candidate = move_candidate(worker, path->next, priority);
         candidate.source = "defense.move_to_upgrade_target";
         return candidate;
@@ -503,7 +514,7 @@ std::optional<CandidateAction> building_upgrade_action(
     const auto* shop = first_weapon_shop(turn);
     if (!price || !shop || turn.team_our.gold < *price || !worker.backpack_capacity ||
         worker.backpack.size() >= static_cast<std::size_t>(*worker.backpack_capacity)) {
-        return std::nullopt;
+        return astra::nullopt;
     }
     if (distance(worker.pos, shop->pos) <= 1) {
         CandidateAction candidate;
@@ -518,7 +529,7 @@ std::optional<CandidateAction> building_upgrade_action(
     }
     const auto path = next_step_toward_any(
         turn, worker.id, interaction_cells(turn, shop->pos), reservations);
-    if (!path || path->distance == 0) return std::nullopt;
+    if (!path || path->distance == 0) return astra::nullopt;
     auto candidate = move_candidate(worker, path->next, priority);
     candidate.source = "defense.move_to_weapon_shop";
     return candidate;
@@ -529,13 +540,13 @@ int carried_summons(const UnitObservation& unit) {
                                           is_robot_summon_order));
 }
 
-std::optional<CandidateAction> summon_action(const TurnObservation& turn,
+astra::Optional<CandidateAction> summon_action(const TurnObservation& turn,
                                              const UnitObservation& worker,
                                              const NavigationReservations& reservations,
                                              const std::vector<Pos>& return_goals,
                                              int priority) {
     const int remaining = std::max(0, 10 - turn.summon_orders_used);
-    if (remaining == 0) return std::nullopt;
+    if (remaining == 0) return astra::nullopt;
     for (const std::string name : {"BossRobotSummonOrder", "LargeRobotSummonOrder",
                                     "MiddleRobotSummonOrder", "SmallRobotSummonOrder"}) {
         if (!has_item(worker, name)) continue;
@@ -552,26 +563,26 @@ std::optional<CandidateAction> summon_action(const TurnObservation& turn,
     if (turn.team_our.gold <= reconstruction_reserve || !worker.backpack_capacity ||
         *worker.backpack_capacity <= 0 ||
         worker.backpack.size() >= static_cast<std::size_t>(*worker.backpack_capacity)) {
-        return std::nullopt;
+        return astra::nullopt;
     }
     int held = 0;
     for (const auto& unit : turn.team_our.roles) held += carried_summons(unit);
     const int free_space = *worker.backpack_capacity - static_cast<int>(worker.backpack.size());
     int slots = std::min(remaining - held, free_space);
-    if (slots <= 0) return std::nullopt;
+    if (slots <= 0) return astra::nullopt;
     const auto* shop = first_weapon_shop(turn);
-    if (!shop) return std::nullopt;
+    if (!shop) return astra::nullopt;
     const auto outward = next_step_toward_any(
         turn, worker.id, interaction_cells(turn, shop->pos), reservations);
-    if (!outward) return std::nullopt;
+    if (!outward) return astra::nullopt;
     TurnObservation from_shop = turn;
     find_worker(from_shop, worker.id)->pos = outward->goal;
     const auto home = next_step_toward_any(from_shop, worker.id, return_goals, {});
-    if (!home) return std::nullopt;
+    if (!home) return astra::nullopt;
     const int daylight = 70 - ((turn.round_no - 1) % 130 + 1) + 1;
     const int available_actions = daylight - outward->distance - home->distance - 2;
     slots = std::min(slots, available_actions - 1);
-    if (slots <= 0) return std::nullopt;
+    if (slots <= 0) return astra::nullopt;
 
     const auto large_price = shop_price(turn, "LargeRobotSummonOrder");
     const auto boss_price = shop_price(turn, "BossRobotSummonOrder");
@@ -596,7 +607,7 @@ std::optional<CandidateAction> summon_action(const TurnObservation& turn,
             }
         }
     }
-    if (best_large + best_boss == 0) return std::nullopt;
+    if (best_large + best_boss == 0) return astra::nullopt;
     if (outward->distance > 0) {
         auto candidate = move_candidate(worker, outward->next, priority);
         candidate.source = "offense.move_to_weapon_shop";
@@ -614,7 +625,7 @@ std::optional<CandidateAction> summon_action(const TurnObservation& turn,
     return candidate;
 }
 
-std::optional<CandidateAction> front_wall_action(
+astra::Optional<CandidateAction> front_wall_action(
     const TurnObservation& turn,
     const UnitObservation& worker,
     const std::vector<Pos>& missing_walls,
@@ -640,7 +651,7 @@ std::optional<CandidateAction> front_wall_action(
             goals.insert(goals.end(), cells.begin(), cells.end());
         }
         const auto path = next_step_toward_any(turn, worker.id, goals, reservations);
-        if (!path || path->distance == 0) return std::nullopt;
+        if (!path || path->distance == 0) return astra::nullopt;
         auto candidate = move_candidate(worker, path->next, priority);
         candidate.source = "defense.move_to_front_wall";
         return candidate;
@@ -648,7 +659,7 @@ std::optional<CandidateAction> front_wall_action(
 
     if (!worker.backpack_capacity || *worker.backpack_capacity <= 0 ||
         worker.backpack.size() >= static_cast<std::size_t>(*worker.backpack_capacity)) {
-        return std::nullopt;
+        return astra::nullopt;
     }
     std::vector<Pos> stone_goals;
     for (const auto& zone : turn.map.zones) {
@@ -666,7 +677,7 @@ std::optional<CandidateAction> front_wall_action(
         stone_goals.insert(stone_goals.end(), cells.begin(), cells.end());
     }
     const auto path = next_step_toward_any(turn, worker.id, stone_goals, reservations);
-    if (!path || path->distance == 0) return std::nullopt;
+    if (!path || path->distance == 0) return astra::nullopt;
     auto candidate = move_candidate(worker, path->next, priority);
     candidate.source = "defense.move_to_stone";
     return candidate;
@@ -681,12 +692,12 @@ void reserve_move(const UnitObservation& actor,
     reservations.edges.push_back({actor.pos, destination});
 }
 
-std::optional<CandidateAction> pioneer_task_action(
+astra::Optional<CandidateAction> pioneer_task_action(
     const TurnObservation& turn,
     const UnitObservation& pioneer,
     const NavigationReservations& reservations,
     int priority) {
-    if (!turn.phase_task.empty()) return std::nullopt;
+    if (!turn.phase_task.empty()) return astra::nullopt;
     std::vector<Pos> goals;
     bool adjacent = false;
     for (const auto& task : turn.team_our.player_tasks) {
@@ -706,7 +717,7 @@ std::optional<CandidateAction> pioneer_task_action(
         return candidate;
     }
     const auto path = next_step_toward_any(turn, pioneer.id, goals, reservations);
-    if (!path || path->distance == 0) return std::nullopt;
+    if (!path || path->distance == 0) return astra::nullopt;
     auto candidate = move_candidate(pioneer, path->next, priority);
     candidate.source = "task.move";
     return candidate;
@@ -727,7 +738,7 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
             if (!building_at(turn, target)) missing_rocket_sites.push_back(target);
         }
     }
-    std::optional<UpgradeTarget> upgrade_target;
+    astra::Optional<UpgradeTarget> upgrade_target;
     if (defense_layout && missing_rocket_sites.empty()) {
         upgrade_target = choose_upgrade_target(turn, *defense_layout);
     }
@@ -743,14 +754,14 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
             characters.push_back(&unit);
         }
     }
-    std::sort(characters.begin(), characters.end(), [](const auto* left, const auto* right) {
+    std::sort(characters.begin(), characters.end(), [](const UnitObservation* left, const UnitObservation* right) {
         const bool left_carrying = carried_mineral_count(*left) > 0;
         const bool right_carrying = carried_mineral_count(*right) > 0;
         if (left_carrying != right_carrying) return left_carrying > right_carrying;
         if (left->role_type != right->role_type) return left->role_type == RoleType::worker;
         return left->id < right->id;
     });
-    std::optional<int> voucher_holder;
+    astra::Optional<int> voucher_holder;
     if (upgrade_target) {
         for (const auto* actor : characters) {
             if (actor->role_type == RoleType::worker && has_item(*actor, upgrade_target->voucher)) {
@@ -759,7 +770,7 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
             }
         }
     }
-    std::optional<int> wall_actor;
+    astra::Optional<int> wall_actor;
     if (!missing_front_walls.empty()) {
         for (const auto* actor : characters) {
             if (actor->role_type == RoleType::worker && actor->id != voucher_holder &&
@@ -777,7 +788,7 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
             }
         }
     }
-    std::optional<int> upgrade_actor = voucher_holder;
+    astra::Optional<int> upgrade_actor = voucher_holder;
     if (upgrade_target && !upgrade_actor) {
         for (const auto* actor : characters) {
             if (actor->role_type == RoleType::worker && actor->id != wall_actor) {
@@ -787,9 +798,9 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         }
         if (!upgrade_actor) upgrade_actor = wall_actor;
     }
-    std::optional<int> summon_actor;
+    astra::Optional<int> summon_actor;
     const bool living_enemy_station = std::any_of(
-        turn.team_enemy.begin(), turn.team_enemy.end(), [](const auto& unit) {
+        turn.team_enemy.begin(), turn.team_enemy.end(), [](const UnitObservation& unit) {
             return unit.role_type == RoleType::station && unit.health && *unit.health > 0;
         });
     if (defense_layout && defense_complete(turn, *defense_layout) && living_enemy_station) {
@@ -826,9 +837,9 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         const auto post = posts.find(actor->id);
         const auto return_goals = post == posts.end() ? station_interaction_cells(turn)
                                                       : std::vector<Pos>{post->second};
-        std::optional<CandidateAction> candidate;
+        astra::Optional<CandidateAction> candidate;
         if (actor->role_type == RoleType::pioneer && !turn.phase_task.empty()) {
-            candidate = std::nullopt;
+            candidate = astra::nullopt;
         } else if (round_in_day > 70) {
             candidate = return_move(turn, *actor, reservations, return_goals, priority);
         } else if (actor->role_type == RoleType::worker) {
@@ -838,7 +849,7 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
             if (return_path && daylight_remaining <= return_path->distance + 2) {
                 candidate = return_move(turn, *actor, reservations, return_goals, priority);
             } else if (station_interaction_cells(turn).empty() && daylight_remaining <= 2) {
-                candidate = std::nullopt;
+                candidate = astra::nullopt;
             } else {
                 if (defense_index < missing_rocket_sites.size() && build_gold_remaining >= 25) {
                     candidate = rocket_build_action(turn,

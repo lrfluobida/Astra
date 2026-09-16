@@ -3,7 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
-#include <optional>
+#include "optional.hpp"
 #include <sstream>
 #include <string>
 
@@ -103,6 +103,8 @@ enum class ModelResultKind {
 };
 
 struct ModelResult {
+    ModelResult(ModelResultKind result_kind, std::string text)
+        : kind(result_kind), value(std::move(text)) {}
     ModelResultKind kind = ModelResultKind::malformed;
     std::string value;
 };

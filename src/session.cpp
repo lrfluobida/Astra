@@ -22,11 +22,13 @@ bool action_succeeded(const TurnObservation& turn, int actor_id) {
     return found != turn.last_round_role_action_results.end() && found->second;
 }
 
-std::optional<int> accepted_task_actor(const Decision& decision) {
-    for (const auto& [actor_id, command] : decision.role_commands) {
+astra::Optional<int> accepted_task_actor(const Decision& decision) {
+    for (const auto& actor_id_entry : decision.role_commands) {
+        const auto& actor_id = actor_id_entry.first;
+        const auto& command = actor_id_entry.second;
         if (command.action == "acceptTask") return actor_id;
     }
-    return std::nullopt;
+    return astra::nullopt;
 }
 
 std::string utf8_prefix(const std::string& value, std::size_t maximum_bytes) {
@@ -69,7 +71,7 @@ Json::Value AgentSession::handle_with_budget(const Json::Value& input,
 }
 
 Json::Value AgentSession::handle(const Json::Value& input, Decision proposed) {
-    return handle_planned(input, [proposed = std::move(proposed)](const TurnObservation&) mutable {
+    return handle_planned(input, [&proposed](const TurnObservation&) mutable {
         return std::move(proposed);
     });
 }
@@ -118,7 +120,7 @@ Json::Value AgentSession::handle_planned(const Json::Value& input,
         pending_summon_orders_.reset();
     }
     turn.summon_orders_used = daily_summon_orders_used_;
-    diagnostics_.news_by_day.try_emplace(day, turn.world_news);
+    diagnostics_.news_by_day.emplace(day, turn.world_news);
 
     bool task_changed = false;
     if (turn.phase_task.empty()) {
@@ -207,7 +209,7 @@ Json::Value AgentSession::handle_planned(const Json::Value& input,
             diagnostics_.pending_prompt = PendingRequest{turn.round_no, active_task_serial_};
         } else if (diagnostics_.daily_llm_used < kDailyLlmLimit) {
             ++diagnostics_.daily_llm_used;
-            diagnostics_.pending_prompt = PendingRequest{turn.round_no, std::nullopt};
+            diagnostics_.pending_prompt = PendingRequest{turn.round_no, astra::nullopt};
         } else {
             proposed.prompt.reset();
             diagnostics_.degradation_reason = "daily LLM limit reached";
@@ -225,7 +227,9 @@ Json::Value AgentSession::handle_planned(const Json::Value& input,
     }
 
     if (active_task_serial_) {
-        for (const auto& [actor_id, command] : proposed.role_commands) {
+        for (const auto& actor_id_entry : proposed.role_commands) {
+            const auto& actor_id = actor_id_entry.first;
+            const auto& command = actor_id_entry.second;
             (void)actor_id;
             if (command.action == "submitAnswer" && command.task_answer) {
                 append_task_history("submitted answer", *command.task_answer);

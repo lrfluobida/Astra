@@ -1,6 +1,6 @@
 # Astra
 
-Astra 是《未来战争》公司编程比赛的 C++17 参赛程序。当前仓库已完成协议、会话、动作裁决、HTTP 服务、回放验证，以及首版经济、导航、三火箭建造与升级、开拓者任务、弱模型任务求解、夜间返航和武器防守策略。
+Astra 是《未来战争》公司编程比赛的 C++11 参赛程序。当前仓库已完成协议、会话、动作裁决、HTTP 服务、回放验证，以及首版经济、导航、三火箭建造与升级、开拓者任务、弱模型任务求解、夜间返航和武器防守策略。
 
 ## 构建
 
@@ -18,19 +18,19 @@ bash scripts/build.sh debug
 
 可用构建模式为 `debug`、`release` 和 `sanitize`。
 
-本地脚本会使用 `.tmp` 中的 jsoncpp 兼容开发包。参赛程序源码只引用官方允许的 `json/json.h`，不再依赖 nlohmann/json 或 cpp-httplib。
+本地脚本会静态编译 `sdk/jsoncpp/` 中由与 SDK 同版本的上游 jsoncpp 1.9.3 源码生成的 amalgamation，不需要系统安装 jsoncpp。参赛程序源码只引用 `json/json.h`，不依赖 nlohmann/json 或 cpp-httplib。
 
 ## 比赛提交
 
-生成仅包含 CMake 与参赛源码的压缩包：
+生成包含 CMake、参赛源码与 SDK 同版本的上游 jsoncpp 1.9.3 源码的压缩包：
 
 ```bash
 bash scripts/package_sdk.sh
 ```
 
-产物为 `dist/Astra-CoreGeek.tar.gz`，可直接上传到只接收 tar.gz 的比赛平台。压缩包根目录是 `CoreGeek/`，与官方示例一致，只包含 CMake 和参赛源码，不包含测试、临时文件或平台禁止的第三方依赖。
+产物为 `dist/Astra-CoreGeek.tar.gz`，可直接上传到只接收 tar.gz 的比赛平台。压缩包根目录是 `CoreGeek/`，与官方示例一致，只包含 CMake、参赛源码和带许可证的上游 jsoncpp 1.9.3 源码，不包含测试或临时文件。
 
-平台将 `CoreGeek/` 放入官方 SDK 后，使用相邻的 `ThirdParty/include/json/` 和 `ThirdParty/lib/libjsoncpp.so` 完成编译。CMake 默认使用 Release，程序输出到同级 `bin/CoreGeek`；二进制通过相对 RPATH 加载官方 jsoncpp，无需修改系统库路径。
+压缩包不依赖相邻的 `ThirdParty` 目录或系统 jsoncpp。平台在解压后的队伍根目录创建 `build/` 时，CMake 会以 C++11 和严格标准检查静态编译全部源码，并将程序输出到队伍根目录的 `bin/CoreGeek`，供平台直接运行 `./bin/CoreGeek`。
 
 ## 启动
 
@@ -78,4 +78,4 @@ bash scripts/test.sh sanitize
 
 每局比赛包含交换位置的上下两个半场；先比较半场胜负，双方各胜一场时再比较两半场表现分总和，最终胜、平、负分别获得 3、1、0 个排行榜积分。Astra 因此优先保证基地存活和整局胜率，同时用任务分、机器人击杀分与生存分争取半场优势。当前战斗规划仍不预测机器人下一步，近端压力方向也需要真实平台日志校准；1300 回合回放仅验证连续请求响应、会话和指令边界，不会推进完整游戏状态，不能作为守满十天或最终得分的证明。
 
-正式环境已确认是 CentOS 7.6、GCC 8.3.1、CMake 3.16.5 和 Make 4.2.1，提交格式为 tar.gz。当前已用 jsoncpp 1.9.5 兼容包完成 Debug、Release、Sanitizer、CMake、HTTP 分包和 1300 回合回放验证；正式平台将使用 SDK 自带的 jsoncpp 1.9.3。平台实际模型能力仍需通过比赛运行结果继续调优。
+正式平台日志显示编译器为 GCC 4.8.5，提交格式为 tar.gz。项目要求 CMake 3.10 或更高版本，使用 C++11，并随包静态编译与 SDK 同版本的上游 jsoncpp 1.9.3 源码。本地已用真正的 GCC 4.8.5 和配套旧版 libstdc++ 通过 88 项 C++ 测试、HTTP 与 1300 回合连续请求验证；这不等同于完整公司判题环境的实测。平台实际模型能力仍需通过比赛运行结果继续调优。

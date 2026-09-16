@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace astra::test {
+namespace astra { namespace test {
 
 using TestFunction = std::function<void()>;
 
@@ -83,7 +83,7 @@ inline int run(const std::string& filter) {
     return failures == 0 ? 0 : 1;
 }
 
-}  // namespace astra::test
+}}  // namespace astra::test
 
 #define ASTRA_TEST(name)                                                     \
     static void name();                                                      \

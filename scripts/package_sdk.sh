@@ -20,5 +20,6 @@ rm -rf "$dist_dir"
 mkdir -p "$staging_dir"
 cp "$project_dir/CMakeLists.txt" "$staging_dir/"
 cp -R "$project_dir/src" "$staging_dir/"
+cp -R "$project_dir/sdk" "$staging_dir/"
 tar -czf "$archive" -C "$dist_dir" CoreGeek
 echo "$archive"

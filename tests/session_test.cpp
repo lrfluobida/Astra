@@ -25,7 +25,9 @@ astra::Decision accept_task_decision() {
 
 astra::Decision summon_decision(std::initializer_list<std::pair<const int, std::string>> orders) {
     astra::Decision decision;
-    for (const auto& [actor, name] : orders) {
+    for (const auto& actor_entry : orders) {
+        const auto& actor = actor_entry.first;
+        const auto& name = actor_entry.second;
         auto& command = decision.role_commands[actor];
         command.action = "use";
         command.name = name;
@@ -174,7 +176,7 @@ ASTRA_TEST(session_accepts_only_results_from_an_earlier_sent_request) {
     input["lastCmdResult"] = "[exitCode:0]\nreal";
     session.handle(input);
     astra::test::require(session.diagnostics().last_command_result ==
-                             std::optional<std::string>("[exitCode:0]\nreal"),
+                             astra::Optional<std::string>("[exitCode:0]\nreal"),
                          "next-round command result must satisfy the pending command");
 }
 

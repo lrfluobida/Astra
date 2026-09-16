@@ -3,7 +3,7 @@
 #include "protocol.hpp"
 
 #include <array>
-#include <optional>
+#include "optional.hpp"
 #include <vector>
 
 namespace astra {
@@ -16,6 +16,6 @@ struct DefenseLayout {
     std::array<Pos, 2> far_rockets;
 };
 
-std::optional<DefenseLayout> derive_defense_layout(const TurnObservation& turn);
+astra::Optional<DefenseLayout> derive_defense_layout(const TurnObservation& turn);
 
 }  // namespace astra

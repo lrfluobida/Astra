@@ -38,9 +38,9 @@ int direction(int delta) {
 
 }  // namespace
 
-std::optional<DefenseLayout> derive_defense_layout(const TurnObservation& turn) {
+astra::Optional<DefenseLayout> derive_defense_layout(const TurnObservation& turn) {
     const auto* station = find_station(turn);
-    if (!station || turn.map.width <= 0 || turn.map.height <= 0) return std::nullopt;
+    if (!station || turn.map.width <= 0 || turn.map.height <= 0) return astra::nullopt;
 
     DefenseLayout layout;
     append_ring(turn,
@@ -81,7 +81,7 @@ std::optional<DefenseLayout> derive_defense_layout(const TurnObservation& turn) 
 
     if (!in_bounds(turn, layout.near_rocket) || !in_bounds(turn, layout.far_rockets[0]) ||
         !in_bounds(turn, layout.far_rockets[1])) {
-        return std::nullopt;
+        return astra::nullopt;
     }
     return layout;
 }

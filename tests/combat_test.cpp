@@ -34,7 +34,7 @@ astra::RobotObservation robot(int id,
                               astra::Pos pos,
                               const std::string& type,
                               int health,
-                              std::optional<std::string> target = "challenger") {
+                              astra::Optional<std::string> target = "challenger") {
     return {id, pos, type, health, "", std::move(target)};
 }
 
