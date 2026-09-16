@@ -75,7 +75,7 @@ astra::TurnObservation late_game_turn() {
     turn.team_our.gold = 1300;
     turn.map.zones = {{{6, 28}, "weaponShop"}, {{6, 27}, "vendor"}};
     turn.team_our.roles = {worker(10010, {7, 28}), station({10, 24}),
-                           rocket(10040, {9, 25}, 3), rocket(10041, {10, 25}, 3),
+                           rocket(10040, {9, 25}, 3), rocket(10041, {9, 22}, 3),
                            rocket(10042, {12, 22}, 3)};
     turn.team_our.roles[1].level = 3;
     turn.team_our.roles[1].health = 4500;
@@ -116,6 +116,107 @@ ASTRA_TEST(strategy_collects_best_priced_adjacent_mineral) {
                              command->target_positions.front().x == 1 &&
                              command->target_positions.front().y == 2,
                          "worker must prefer higher-priced adjacent copper");
+}
+
+ASTRA_TEST(strategy_resumes_both_workers_and_pioneer_after_own_wave_clears) {
+    auto turn = economy_turn();
+    turn.round_no = 90;
+    turn.team_our.roles = {worker(10010, {1, 1}), worker(10012, {1, 3}),
+                           pioneer(10011, {5, 3})};
+    turn.map.zones = {{{2, 1}, "copper"}, {{2, 3}, "copper"}, {{10, 8}, "vendor"}};
+    turn.team_our.player_tasks.push_back(
+        {"task", {6, 3}, 0, 50, 30, true, astra::nullopt});
+    turn.robots.push_back({30001, {11, 9}, "smallRobot", 40, "", "defender"});
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    for (int id : {10010, 10012}) {
+        const auto* command = command_for(decision, id);
+        astra::test::require(command && command->action == "collect",
+                             "both workers must resume collection after their wave clears");
+    }
+    const auto* command = command_for(decision, 10011);
+    astra::test::require(command && command->action == "acceptTask",
+                         "pioneer must resume tasks while enemy wave remains elsewhere");
+    auto armed = turn;
+    auto gun = rocket(10040, {0, 1}, 3);
+    gun.attack_power = 20;
+    armed.team_our.roles.push_back(gun);
+    const auto working = astra::BaselineStrategy().decide(armed);
+    astra::test::require(command_for(working, 10010) &&
+                             command_for(working, 10010)->action == "collect" &&
+                             command_for(working, 10040) == nullptr,
+                         "enemy-wave scoring must not monopolize a worker after own wave clears");
+    turn.robots.front().target_team = astra::nullopt;
+    astra::test::require(astra::BaselineStrategy().decide(turn).role_commands.empty(),
+                         "unknown robot target must conservatively keep characters defending");
+    turn.robots.front().target_team = "challenger";
+    astra::test::require(astra::BaselineStrategy().decide(turn).role_commands.empty(),
+                         "living own-wave robots must keep characters defending");
+    turn.robots.clear();
+    turn.round_no = 71;
+    astra::test::require(astra::BaselineStrategy().decide(turn).role_commands.empty(),
+                         "first night turn must wait for wave spawn visibility");
+}
+
+ASTRA_TEST(strategy_clear_night_can_start_mining_route_without_building) {
+    auto turn = economy_turn();
+    turn.round_no = 129;
+    turn.team_our.roles.front().pos = {5, 1};
+    turn.team_our.roles.push_back(station({9, 7}));
+    turn.map.zones = {{{2, 1}, "copper"}, {{1, 1}, "vendor"}};
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* command = command_for(decision, 10010);
+    astra::test::require(command && command->action == "move" &&
+                             command->target_positions.front().x == 4,
+                         "clear night must budget through next day and move toward mine");
+}
+
+ASTRA_TEST(strategy_applies_clear_night_upgrade_purchase_return_and_use) {
+    auto turn = late_game_turn();
+    turn.round_no = 90;
+    turn.team_our.roles[2].level = 1;
+    bool bought = false;
+    bool upgraded = false;
+    for (; turn.round_no < 120 && !upgraded; ++turn.round_no) {
+        const auto decision = astra::BaselineStrategy().decide(turn);
+        const auto* command = command_for(decision, 10010);
+        astra::test::require(command != nullptr, "upgrade trip must not stall after clearing wave");
+        auto& actor = turn.team_our.roles.front();
+        if (command->action == "buy") {
+            astra::test::require(!bought && command->name == "WeaponUpgradeVoucher1",
+                                 "upgrade trip must buy the expected voucher exactly once");
+            actor.backpack.push_back(*command->name);
+            turn.team_our.gold -= 100;
+            bought = true;
+        } else if (command->action == "move") {
+            actor.pos = command->target_positions.front();
+        } else if (command->action == "use") {
+            astra::test::require(bought && !actor.backpack.empty() &&
+                                     command->target_positions.front().x == 9 &&
+                                     command->target_positions.front().y == 25,
+                                 "carried voucher must reach first rear rocket");
+            actor.backpack.clear();
+            turn.team_our.roles[2].level = 2;
+            upgraded = true;
+        } else {
+            astra::test::require(false, "upgrade worker must finish its purchase and delivery");
+        }
+    }
+    astra::test::require(upgraded, "applied moves must deliver and use purchased upgrade before night ends");
+}
+
+ASTRA_TEST(strategy_upgrade_buyer_is_not_reassigned_to_mineral_carrier) {
+    auto turn = late_game_turn();
+    turn.team_our.roles[2].level = 1;
+    turn.team_our.roles.push_back(worker(10012, {20, 20}));
+    turn.team_our.roles.back().backpack = {"copper"};
+    for (int round : {20, 90}) {
+        turn.round_no = round;
+        const auto decision = astra::BaselineStrategy().decide(turn);
+        const auto* command = command_for(decision, 10010);
+        astra::test::require(command && command->action == "buy" &&
+                                 command->name == "WeaponUpgradeVoucher1",
+                             "nearby empty worker must buy upgrade despite other worker carrying minerals");
+    }
 }
 
 ASTRA_TEST(strategy_sells_highest_total_value_mineral_in_one_batch) {
@@ -351,7 +452,7 @@ ASTRA_TEST(strategy_builds_distinct_far_rockets_before_worker_economy) {
     turn.map.height = 15;
     turn.team_our.gold = 75;
     turn.team_our.roles = {
-        worker(10010, {12, 10}), worker(10012, {10, 10}), station({10, 8}),
+        worker(10010, {12, 10}), worker(10012, {12, 5}), station({10, 8}),
     };
 
     const auto decision = astra::BaselineStrategy().decide(turn);
@@ -367,7 +468,7 @@ ASTRA_TEST(strategy_builds_distinct_far_rockets_before_worker_economy) {
         {first->target_positions.front().x, first->target_positions.front().y},
         {second->target_positions.front().x, second->target_positions.front().y},
     };
-    astra::test::require(targets == std::set<std::pair<int, int>>{{11, 9}, {12, 9}},
+    astra::test::require(targets == std::set<std::pair<int, int>>{{12, 6}, {12, 9}},
                          "the two far rocket sites must be built before the near site");
 }
 
@@ -376,7 +477,7 @@ ASTRA_TEST(strategy_moves_worker_off_its_assigned_rocket_site_before_building) {
     turn.map.width = 15;
     turn.map.height = 15;
     turn.team_our.roles = {
-        worker(10010, {12, 9}), worker(10012, {10, 10}), station({10, 8}),
+        worker(10010, {12, 9}), worker(10012, {12, 5}), station({10, 8}),
     };
 
     const auto decision = astra::BaselineStrategy().decide(turn);
@@ -400,7 +501,7 @@ ASTRA_TEST(strategy_buys_and_uses_upgrades_on_far_rockets_first) {
         worker(10010, {9, 10}),
         station({10, 8}),
         rocket(10040, {12, 9}, 1),
-        rocket(10041, {11, 9}, 1),
+        rocket(10041, {12, 6}, 1),
         rocket(10042, {9, 6}, 1),
     };
 
@@ -420,12 +521,12 @@ ASTRA_TEST(strategy_buys_and_uses_upgrades_on_far_rockets_first) {
                          "first far rocket must receive the carried voucher");
 
     turn.team_our.roles[2].level = 2;
-    turn.team_our.roles.front().pos = {10, 10};
+    turn.team_our.roles.front().pos = {12, 5};
     const auto use_second = astra::BaselineStrategy().decide(turn);
     use = command_for(use_second, 10010);
     astra::test::require(use && use->action == "use" &&
-                             use->target_positions.front().x == 11 &&
-                             use->target_positions.front().y == 9,
+                             use->target_positions.front().x == 12 &&
+                             use->target_positions.front().y == 6,
                          "second far rocket must reach level2 before the near rocket");
 
     turn.team_our.roles[3].level = 2;
@@ -448,7 +549,7 @@ ASTRA_TEST(strategy_collects_stone_for_front_wall_while_other_worker_upgrades) {
     turn.map.zones = {{{6, 10}, "weaponShop"}, {{7, 5}, "stone"}};
     turn.team_our.roles = {
         worker(10010, {7, 10}), worker(10012, {7, 6}), station({10, 8}),
-        rocket(10040, {12, 9}, 1), rocket(10041, {11, 9}, 1),
+        rocket(10040, {12, 9}, 1), rocket(10041, {12, 6}, 1),
         rocket(10042, {9, 6}, 1),
     };
 
@@ -471,7 +572,7 @@ ASTRA_TEST(strategy_builds_only_the_front_half_wall_with_reserved_stone) {
     builder.backpack.assign(10, "stone");
     turn.team_our.roles = {
         worker(10010, {1, 1}), builder, station({10, 8}),
-        rocket(10040, {12, 9}, 3), rocket(10041, {11, 9}, 3),
+        rocket(10040, {12, 9}, 3), rocket(10041, {12, 6}, 3),
         rocket(10042, {9, 6}, 3),
     };
 
@@ -525,7 +626,7 @@ ASTRA_TEST(strategy_returns_to_staff_all_three_rockets_over_applied_rounds) {
     turn.round_no = 71;
     turn.team_our.roles = {worker(10010, {10, 22}), worker(10012, {11, 22}),
                            pioneer(10011, {12, 23}), station({10, 24}),
-                           rocket(10040, {9, 25}, 3), rocket(10041, {10, 25}, 3),
+                           rocket(10040, {9, 25}, 3), rocket(10041, {9, 22}, 3),
                            rocket(10042, {12, 22}, 3)};
     for (auto& role : turn.team_our.roles) {
         if (role.role_type == astra::RoleType::rocket) role.attack_power = 20;

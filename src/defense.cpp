@@ -1,8 +1,5 @@
 #include "defense.hpp"
 
-#include <algorithm>
-#include <tuple>
-
 namespace astra {
 namespace {
 
@@ -58,26 +55,28 @@ astra::Optional<DefenseLayout> derive_defense_layout(const TurnObservation& turn
 
     const int toward_center_x = direction((turn.map.width - 1) - (2 * station->pos.x + 1));
     const int toward_center_y = direction((turn.map.height - 1) - (2 * station->pos.y - 1));
-    const int station_center_x2 = 2 * station->pos.x + 1;
-    const int station_center_y2 = 2 * station->pos.y - 1;
-    layout.front_wall_tiles = layout.wall_build_tiles;
-    std::sort(layout.front_wall_tiles.begin(),
-              layout.front_wall_tiles.end(),
-              [&](const Pos& left, const Pos& right) {
-                  const int left_x = toward_center_x * (2 * left.x - station_center_x2);
-                  const int left_y = toward_center_y * (2 * left.y - station_center_y2);
-                  const int right_x = toward_center_x * (2 * right.x - station_center_x2);
-                  const int right_y = toward_center_y * (2 * right.y - station_center_y2);
-                  return std::make_tuple(left_x + left_y, left_x, left_y) >
-                         std::make_tuple(right_x + right_y, right_x, right_y);
-              });
-    layout.front_wall_tiles.resize(layout.front_wall_tiles.size() / 2);
+    const int front_x = toward_center_x > 0 ? station->pos.x + 3 : station->pos.x - 2;
+    for (int offset = 0; offset < 3; ++offset) {
+        const int toward_y = toward_center_y > 0 ? station->pos.y + offset
+                                                 : station->pos.y - 1 - offset;
+        const int away_y = toward_center_y > 0 ? station->pos.y - 1 - offset
+                                               : station->pos.y + offset;
+        layout.front_wall_tiles.push_back({front_x, toward_y});
+        layout.front_wall_tiles.push_back({front_x, away_y});
+    }
+    const int toward_edge_y = toward_center_y > 0 ? station->pos.y + 2 : station->pos.y - 3;
+    const int away_edge_y = toward_center_y > 0 ? station->pos.y - 3 : station->pos.y + 2;
+    for (int edge_y : {toward_edge_y, away_edge_y}) {
+        layout.front_wall_tiles.push_back({front_x - toward_center_x, edge_y});
+        layout.front_wall_tiles.push_back({front_x - 2 * toward_center_x, edge_y});
+    }
     const int near_x = toward_center_x > 0 ? station->pos.x + 2 : station->pos.x - 1;
     const int near_y = toward_center_y > 0 ? station->pos.y + 1 : station->pos.y - 2;
     const int far_x = toward_center_x > 0 ? station->pos.x - 1 : station->pos.x + 2;
     const int far_y = toward_center_y > 0 ? station->pos.y - 2 : station->pos.y + 1;
+    const int opposite_far_y = toward_center_y > 0 ? station->pos.y + 1 : station->pos.y - 2;
     layout.near_rocket = {near_x, near_y};
-    layout.far_rockets = {{{far_x, far_y}, {far_x + toward_center_x, far_y}}};
+    layout.far_rockets = {{{far_x, far_y}, {far_x, opposite_far_y}}};
 
     if (!in_bounds(turn, layout.near_rocket) || !in_bounds(turn, layout.far_rockets[0]) ||
         !in_bounds(turn, layout.far_rockets[1])) {

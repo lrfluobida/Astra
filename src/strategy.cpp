@@ -35,6 +35,18 @@ bool is_character(const UnitObservation& unit) {
     return unit.role_type == RoleType::worker || unit.role_type == RoleType::pioneer;
 }
 
+bool own_wave_cleared(const TurnObservation& turn) {
+    return std::none_of(turn.robots.begin(), turn.robots.end(), [&](const RobotObservation& robot) {
+        return robot.health > 0 &&
+               (!robot.target_team || *robot.target_team !=
+                    (turn.team_our.type == "challenger" ? "defender" : "challenger"));
+    });
+}
+
+int work_rounds_remaining(int round_in_day) {
+    return (round_in_day <= 70 ? 70 : 200) - round_in_day + 1;
+}
+
 bool same_pos(const Pos& left, const Pos& right) {
     return left.x == right.x && left.y == right.y;
 }
@@ -364,7 +376,7 @@ astra::Optional<CandidateAction> economic_move(const TurnObservation& turn,
     if (!best || best->path.distance == 0) return astra::nullopt;
 
     const int round_in_day = (turn.round_no - 1) % 130 + 1;
-    const int daylight_remaining = 70 - round_in_day + 1;
+    const int daylight_remaining = work_rounds_remaining(round_in_day);
     if (daylight_remaining <= best->total_rounds + 2) {
         if (carried_count > 0) {
             const auto vendor_path = path_to_vendor(turn, worker, *vendor, reservations);
@@ -727,6 +739,7 @@ astra::Optional<CandidateAction> pioneer_task_action(
 
 Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     const int round_in_day = (turn.round_no - 1) % 130 + 1;
+    const bool night_work = round_in_day > 71 && own_wave_cleared(turn);
     const TaskCandidates task = task_candidates(turn, 4000);
     const auto prices = positive_prices(turn);
     const auto defense_layout = derive_defense_layout(turn);
@@ -790,13 +803,31 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     }
     astra::Optional<int> upgrade_actor = voucher_holder;
     if (upgrade_target && !upgrade_actor) {
-        for (const auto* actor : characters) {
-            if (actor->role_type == RoleType::worker && actor->id != wall_actor) {
-                upgrade_actor = actor->id;
-                break;
+        const auto* shop = first_weapon_shop(turn);
+        int best_distance = turn.map.width * turn.map.height + 1;
+        if (shop) {
+            const auto goals = interaction_cells(turn, shop->pos);
+            for (const auto* actor : characters) {
+                if (actor->role_type != RoleType::worker || !actor->backpack_capacity ||
+                    *actor->backpack_capacity <= 0 ||
+                    actor->backpack.size() >= static_cast<std::size_t>(*actor->backpack_capacity)) continue;
+                const auto path = next_step_toward_any(turn, actor->id, goals, {});
+                if (path && (!upgrade_actor || path->distance < best_distance ||
+                             (path->distance == best_distance && actor->id < *upgrade_actor))) {
+                    upgrade_actor = actor->id;
+                    best_distance = path->distance;
+                }
             }
         }
-        if (!upgrade_actor) upgrade_actor = wall_actor;
+        if (upgrade_actor && upgrade_actor == wall_actor) {
+            wall_actor = astra::nullopt;
+            for (const auto* actor : characters) {
+                if (actor->role_type == RoleType::worker && actor->id != upgrade_actor) {
+                    wall_actor = actor->id;
+                    break;
+                }
+            }
+        }
     }
     astra::Optional<int> summon_actor;
     const bool living_enemy_station = std::any_of(
@@ -815,7 +846,7 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     }
 
     std::vector<CandidateAction> candidates = task.actions;
-    const auto combat = combat_candidates(turn, 3000);
+    const auto combat = combat_candidates(turn, night_work ? 500 : 3000);
     candidates.insert(candidates.end(), combat.begin(), combat.end());
     std::set<int> firing_controllers;
     for (const auto& attack : combat) {
@@ -833,25 +864,25 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     int build_gold_remaining = turn.team_our.gold;
     int priority = 1000;
     for (const auto* actor : characters) {
-        if (firing_controllers.count(actor->id) != 0) continue;
+        if (!night_work && firing_controllers.count(actor->id) != 0) continue;
         const auto post = posts.find(actor->id);
         const auto return_goals = post == posts.end() ? station_interaction_cells(turn)
                                                       : std::vector<Pos>{post->second};
         astra::Optional<CandidateAction> candidate;
         if (actor->role_type == RoleType::pioneer && !turn.phase_task.empty()) {
             candidate = astra::nullopt;
-        } else if (round_in_day > 70) {
+        } else if (round_in_day > 70 && !night_work) {
             candidate = return_move(turn, *actor, reservations, return_goals, priority);
         } else if (actor->role_type == RoleType::worker) {
             const auto return_path = next_step_toward_any(
                 turn, actor->id, return_goals, reservations);
-            const int daylight_remaining = 70 - round_in_day + 1;
+            const int daylight_remaining = work_rounds_remaining(round_in_day);
             if (return_path && daylight_remaining <= return_path->distance + 2) {
                 candidate = return_move(turn, *actor, reservations, return_goals, priority);
             } else if (station_interaction_cells(turn).empty() && daylight_remaining <= 2) {
                 candidate = astra::nullopt;
             } else {
-                if (defense_index < missing_rocket_sites.size() && build_gold_remaining >= 25) {
+                if (round_in_day <= 70 && defense_index < missing_rocket_sites.size() && build_gold_remaining >= 25) {
                     candidate = rocket_build_action(turn,
                                                     *actor,
                                                     missing_rocket_sites[defense_index],
@@ -867,14 +898,14 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
                                                       reservations,
                                                       priority);
                 }
-                if (!candidate && !missing_front_walls.empty() && wall_actor == actor->id) {
+                if (!candidate && round_in_day <= 70 && !missing_front_walls.empty() && wall_actor == actor->id) {
                     candidate = front_wall_action(turn,
                                                   *actor,
                                                   missing_front_walls,
                                                   reservations,
                                                   priority);
                 }
-                if (!candidate && summon_actor == actor->id) {
+                if (!candidate && round_in_day <= 70 && summon_actor == actor->id) {
                     candidate = summon_action(turn, *actor, reservations, return_goals, priority);
                 }
                 if (!candidate) candidate = adjacent_sell(turn, *actor, prices, priority);
@@ -886,7 +917,7 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         } else {
             const auto return_path = next_step_toward_any(
                 turn, actor->id, return_goals, reservations);
-            const int daylight_remaining = 70 - round_in_day + 1;
+            const int daylight_remaining = work_rounds_remaining(round_in_day);
             if (return_path && daylight_remaining <= return_path->distance + 2) {
                 candidate = return_move(turn, *actor, reservations, return_goals, priority);
             } else {

@@ -293,7 +293,6 @@ std::string validate_collect(const TurnObservation& turn, const CandidateAction&
     if (!alive(actor) || actor->role_type != RoleType::worker) {
         return "collect actor is not a living worker";
     }
-    if (!is_day(turn.round_no)) return "collect is unavailable at night";
     if (candidate.command.target_positions.size() != 1) {
         return "collect requires one targetPos";
     }

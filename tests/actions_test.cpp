@@ -444,7 +444,7 @@ ASTRA_TEST(actions_drop_task_command_when_pioneer_moves_or_submits) {
                          "task command must stop when pioneer submits an answer");
 }
 
-ASTRA_TEST(actions_validate_collect_daylight_target_and_health) {
+ASTRA_TEST(actions_validate_collect_target_and_health_day_and_night) {
     auto turn = action_turn(70);
     turn.map.zones.push_back({{8, 24}, "stone"});
     astra::CandidateAction collect;
@@ -458,8 +458,8 @@ ASTRA_TEST(actions_validate_collect_daylight_target_and_health) {
                          "living worker must collect adjacent mineral at round 70");
 
     turn.round_no = 71;
-    astra::test::require(astra::arbitrate(turn, {collect}, {}, {}).decision.role_commands.empty(),
-                         "collect must stop at night start");
+    astra::test::require(astra::arbitrate(turn, {collect}, {}, {}).decision.role_commands.count(10010) == 1,
+                         "rules permit workers to collect at night");
     turn.round_no = 70;
     for (auto health : {astra::Optional<int>{}, astra::Optional<int>{0}, astra::Optional<int>{-1}}) {
         auto unhealthy = turn;
