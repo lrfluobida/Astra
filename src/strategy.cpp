@@ -95,6 +95,18 @@ struct UpgradeTarget {
     std::string voucher;
 };
 
+astra::Optional<UpgradeTarget> emergency_station_upgrade(const TurnObservation& turn) {
+    for (const auto& unit : turn.team_our.roles) {
+        if (unit.role_type != RoleType::station || !unit.health || *unit.health <= 0 ||
+            !unit.level || *unit.level < 1 || *unit.level >= 3) continue;
+        if (*unit.health * 4 <= 1500 * *unit.level * 3) {
+            return UpgradeTarget{unit.pos, *unit.level == 1 ? "StationUpgradeVoucher1"
+                                                           : "StationUpgradeVoucher2"};
+        }
+    }
+    return astra::nullopt;
+}
+
 const UnitObservation* own_building_at(const TurnObservation& turn, Pos pos, RoleType type) {
     for (const auto& unit : turn.team_our.roles) {
         if (unit.role_type == type && same_pos(unit.pos, pos) && unit.health && *unit.health > 0) {
@@ -313,6 +325,28 @@ astra::Optional<PathStep> path_to_vendor(const TurnObservation& turn,
                                 reservations);
 }
 
+astra::Optional<CandidateAction> cash_in_action(
+    const TurnObservation& turn, const UnitObservation& worker,
+    const std::map<std::string, int>& prices, int funding_gap,
+    const NavigationReservations& reservations, int priority) {
+    int value = 0;
+    for (const auto& item : inventory_counts(worker)) {
+        const auto price = prices.find(item.first);
+        if (price != prices.end()) value += item.second * price->second;
+    }
+    if (value <= 0 || (carried_mineral_count(worker) < 10 &&
+                      (funding_gap <= 0 || value < funding_gap))) return astra::nullopt;
+    const auto sale = adjacent_sell(turn, worker, prices, priority);
+    if (sale) return sale;
+    const auto vendor = first_vendor(turn);
+    if (!vendor) return astra::nullopt;
+    const auto path = path_to_vendor(turn, worker, *vendor, reservations);
+    if (!path || path->distance == 0) return astra::nullopt;
+    auto candidate = move_candidate(worker, path->next, priority);
+    candidate.source = "economy.cash_in";
+    return candidate;
+}
+
 astra::Optional<CandidateAction> economic_move(const TurnObservation& turn,
                                              const UnitObservation& worker,
                                              const std::map<std::string, int>& prices,
@@ -495,7 +529,8 @@ astra::Optional<CandidateAction> building_upgrade_action(
     const UnitObservation& worker,
     const UpgradeTarget& target,
     const NavigationReservations& reservations,
-    int priority) {
+    int priority,
+    bool emergency = false) {
     if (has_item(worker, target.voucher)) {
         if (distance(worker.pos, target.pos) <= 1) {
             CandidateAction candidate;
@@ -523,12 +558,34 @@ astra::Optional<CandidateAction> building_upgrade_action(
         return astra::nullopt;
     }
     if (distance(worker.pos, shop->pos) <= 1) {
+        int quantity = 1;
+        if (target.voucher == "WeaponUpgradeVoucher1" || target.voucher == "WeaponUpgradeVoucher2") {
+            const auto layout = derive_defense_layout(turn);
+            const int required_level = target.voucher == "WeaponUpgradeVoucher1" ? 1 : 2;
+            int needed = 0;
+            if (layout) {
+                for (const auto& pos : {layout->far_rockets[0], layout->far_rockets[1], layout->near_rocket}) {
+                    const auto* weapon = weapon_at(turn, pos);
+                    if (weapon && weapon->health && *weapon->health > 0 &&
+                        weapon->level == astra::Optional<int>(required_level)) ++needed;
+                }
+            }
+            for (const auto& actor : turn.team_our.roles) {
+                if (actor.role_type == RoleType::worker && actor.health && *actor.health > 0) {
+                    needed -= inventory_count(actor, target.voucher);
+                }
+            }
+            const int capacity = *worker.backpack_capacity - static_cast<int>(worker.backpack.size());
+            quantity = std::min(needed, capacity);
+            if (*price > 0) quantity = std::min(quantity, turn.team_our.gold / *price);
+            if (quantity <= 0) return astra::nullopt;
+        }
         CandidateAction candidate;
         candidate.action_key = worker.id;
         candidate.command.action = "buy";
         candidate.command.name = target.voucher;
-        candidate.command.number = 1;
-        candidate.reservation.gold = *price;
+        candidate.command.number = quantity;
+        candidate.reservation.gold = *price * quantity;
         candidate.priority = priority;
         candidate.source = "defense.buy_upgrade";
         return candidate;
@@ -536,6 +593,16 @@ astra::Optional<CandidateAction> building_upgrade_action(
     const auto path = next_step_toward_any(
         turn, worker.id, interaction_cells(turn, shop->pos), reservations);
     if (!path || path->distance == 0) return astra::nullopt;
+    if (!emergency) {
+        TurnObservation from_shop = turn;
+        auto* courier = find_worker(from_shop, worker.id);
+        if (!courier) return astra::nullopt;
+        courier->pos = path->goal;
+        const auto delivery = next_step_toward_any(
+            from_shop, worker.id, interaction_cells(from_shop, target.pos), {});
+        const int remaining = work_rounds_remaining((turn.round_no - 1) % 130 + 1);
+        if (!delivery || remaining <= path->distance + delivery->distance + 4) return astra::nullopt;
+    }
     auto candidate = move_candidate(worker, path->next, priority);
     candidate.source = "defense.move_to_weapon_shop";
     return candidate;
@@ -749,6 +816,11 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     if (defense_layout && missing_rocket_sites.empty()) {
         upgrade_target = choose_upgrade_target(turn, *defense_layout);
     }
+    const auto emergency_upgrade = emergency_station_upgrade(turn);
+    if (emergency_upgrade) upgrade_target = emergency_upgrade;
+    const auto upgrade_price = upgrade_target ? shop_price(turn, upgrade_target->voucher)
+                                               : astra::Optional<int>{};
+    const int funding_gap = upgrade_price ? std::max(0, *upgrade_price - turn.team_our.gold) : 0;
     std::vector<Pos> missing_front_walls;
     if (defense_layout && missing_rocket_sites.empty()) {
         for (const auto& target : defense_layout->front_wall_tiles) {
@@ -796,7 +868,7 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         }
     }
     astra::Optional<int> upgrade_actor = voucher_holder;
-    if (upgrade_target && !upgrade_actor) {
+    if (upgrade_target && !upgrade_actor && upgrade_price && funding_gap == 0) {
         const auto* shop = first_weapon_shop(turn);
         int best_distance = turn.map.width * turn.map.height + 1;
         if (shop) {
@@ -858,12 +930,21 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
     int build_gold_remaining = turn.team_our.gold;
     int priority = 1000;
     for (const auto* actor : characters) {
-        if (!night_work && firing_controllers.count(actor->id) != 0) continue;
+        astra::Optional<CandidateAction> candidate;
+        if (upgrade_target && upgrade_actor == actor->id) {
+            const auto upgrade = building_upgrade_action(turn, *actor, *upgrade_target,
+                                                        reservations, 3500, emergency_upgrade.has_value());
+            if (upgrade && (emergency_upgrade || upgrade->command.action == "use" ||
+                            (upgrade->command.action == "buy" &&
+                             firing_controllers.count(actor->id) == 0))) candidate = upgrade;
+        }
+        if (!candidate && !night_work && firing_controllers.count(actor->id) != 0) continue;
         const auto post = posts.find(actor->id);
         const auto return_goals = post == posts.end() ? station_interaction_cells(turn)
                                                       : std::vector<Pos>{post->second};
-        astra::Optional<CandidateAction> candidate;
-        if (actor->role_type == RoleType::pioneer && !turn.phase_task.empty()) {
+        if (candidate) {
+            // Complete an immediate upgrade or the emergency base delivery before other work.
+        } else if (actor->role_type == RoleType::pioneer && !turn.phase_task.empty()) {
             candidate = astra::nullopt;
         } else if (round_in_day > 70 && !night_work) {
             candidate = return_move(turn, *actor, reservations, return_goals, priority);
@@ -903,6 +984,8 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
                     candidate = summon_action(turn, *actor, reservations, return_goals, priority);
                 }
                 if (!candidate) candidate = adjacent_sell(turn, *actor, prices, priority);
+                if (!candidate) candidate = cash_in_action(turn, *actor, prices, funding_gap,
+                                                          reservations, priority);
                 if (!candidate) candidate = adjacent_collect(turn, *actor, prices, priority);
                 if (!candidate) {
                     candidate = economic_move(turn, *actor, prices, reservations, priority);

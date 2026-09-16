@@ -102,6 +102,134 @@ astra::TurnObservation late_game_turn() {
 
 }  // namespace
 
+ASTRA_TEST(strategy_applies_ten_mineral_batch_then_sells_without_refilling_forever) {
+    auto turn = economy_turn();
+    turn.map.zones = {{{2, 1}, "copper"}, {{8, 1}, "vendor"}};
+    bool sold = false;
+    for (; turn.round_no < 45 && !sold; ++turn.round_no) {
+        const auto decision = astra::BaselineStrategy().decide(turn);
+        const auto* action = command_for(decision, 10010);
+        astra::test::require(action != nullptr, "economic trip must make progress");
+        auto& actor = turn.team_our.roles.front();
+        if (action->action == "collect") actor.backpack.push_back("copper");
+        else if (action->action == "move") actor.pos = action->target_positions.front();
+        else if (action->action == "sell") {
+            astra::test::require(action->number == 10, "sell the planned ten-item batch promptly");
+            sold = true;
+        }
+        astra::test::require(actor.backpack.size() <= 10, "do not mine to capacity while gold stays locked in inventory");
+    }
+    astra::test::require(sold, "applied collection and movement must cash in the batch");
+}
+
+ASTRA_TEST(strategy_cashes_small_inventory_to_unlock_next_weapon_upgrade) {
+    auto turn = late_game_turn();
+    turn.team_our.gold = 140;
+    turn.team_our.roles[2].level = 2;
+    turn.team_our.roles.front().pos = {1, 1};
+    turn.team_our.roles.front().backpack = {"copper", "copper"};
+    turn.map.zones.push_back({{2, 1}, "copper"});
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* command = command_for(decision, 10010);
+    astra::test::require(command && command->action == "move",
+                         "140 gold plus two copper must go cash in the missing ten gold");
+}
+
+ASTRA_TEST(strategy_applies_emergency_station_upgrade_instead_of_dying_with_140_gold) {
+    auto turn = late_game_turn();
+    turn.round_no = 90;
+    turn.team_our.gold = 140;
+    turn.team_our.roles[1].level = 1;
+    turn.team_our.roles[1].health = 500;
+    for (int index : {2, 3, 4}) turn.team_our.roles[index].level = 2;
+    turn.robots.push_back({30001, {20, 15}, "smallRobot", 40, "", "challenger"});
+    bool bought = false;
+    bool used = false;
+    for (; turn.round_no < 110 && !used; ++turn.round_no) {
+        const auto decision = astra::BaselineStrategy().decide(turn);
+        const auto* command = command_for(decision, 10010);
+        astra::test::require(command != nullptr, "emergency upgrade must keep progressing at night");
+        auto& actor = turn.team_our.roles.front();
+        if (command->action == "buy") {
+            astra::test::require(!bought && command->name == "StationUpgradeVoucher1",
+                                 "buy an affordable life-saving base voucher rather than wait for 150 gold");
+            actor.backpack.push_back(*command->name);
+            turn.team_our.gold -= 100;
+            bought = true;
+        } else if (command->action == "move") actor.pos = command->target_positions.front();
+        else if (command->action == "use") {
+            astra::test::require(bought && command->name == "StationUpgradeVoucher1",
+                                 "emergency voucher must be delivered and used on base");
+            turn.team_our.roles[1].level = 2;
+            turn.team_our.roles[1].health = 3000;
+            used = true;
+        } else astra::test::require(false, "emergency worker must not switch to mining or task work");
+    }
+    astra::test::require(used && turn.team_our.gold == 40, "140 gold must turn into an applied emergency upgrade");
+}
+
+ASTRA_TEST(strategy_uses_carried_weapon_upgrade_before_night_firing) {
+    auto turn = late_game_turn();
+    turn.round_no = 90;
+    turn.team_our.roles[2].level = 1;
+    turn.team_our.roles[2].attack_power = 20;
+    turn.team_our.roles.front().pos = {8, 25};
+    turn.team_our.roles.front().backpack = {"WeaponUpgradeVoucher1"};
+    turn.robots.push_back({30001, {15, 24}, "smallRobot", 40, "", "challenger"});
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* command = command_for(decision, 10010);
+    astra::test::require(command && command->action == "use" &&
+                             command->name == "WeaponUpgradeVoucher1" &&
+                             command_for(decision, 10040) == nullptr,
+                         "an immediately usable upgrade must not wait an entire night behind firing");
+}
+
+ASTRA_TEST(strategy_buys_remaining_same_tier_weapon_vouchers_in_one_trip) {
+    auto turn = late_game_turn();
+    turn.team_our.gold = 240;
+    turn.team_our.roles[2].level = 1;
+    turn.team_our.roles[3].level = 1;
+    turn.team_our.roles[4].level = 2;
+    auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* command = command_for(decision, 10010);
+    astra::test::require(command && command->action == "buy" &&
+                             command->name == "WeaponUpgradeVoucher1" && command->number == 2,
+                         "buy both needed rear vouchers together instead of two shop round trips");
+    turn.team_our.gold = 40;
+    turn.team_our.roles.front().backpack = {"WeaponUpgradeVoucher1", "WeaponUpgradeVoucher1"};
+    turn.team_our.roles.front().pos = {8, 25};
+    decision = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(decision, 10010) && command_for(decision, 10010)->action == "use",
+                         "first voucher must be used on first rear rocket");
+    turn.team_our.roles[2].level = 2;
+    turn.team_our.roles.front().backpack.pop_back();
+    turn.team_our.roles.front().pos = {8, 22};
+    decision = astra::BaselineStrategy().decide(turn);
+    command = command_for(decision, 10010);
+    astra::test::require(command && command->action == "use" &&
+                             command->target_positions.front().x == 9 &&
+                             command->target_positions.front().y == 22,
+                         "second carried voucher must upgrade rear two without another purchase");
+}
+
+ASTRA_TEST(strategy_does_not_start_an_upgrade_trip_that_cannot_finish_before_dusk) {
+    auto turn = late_game_turn();
+    turn.round_no = 60;
+    turn.team_our.gold = 100;
+    turn.team_our.roles[2].level = 1;
+    turn.team_our.roles.front().pos = {8, 25};
+    turn.map.zones = {{{25, 20}, "weaponShop"}, {{25, 19}, "vendor"}};
+    for (; turn.round_no <= 70; ++turn.round_no) {
+        const auto decision = astra::BaselineStrategy().decide(turn);
+        astra::test::require(command_for(decision, 10010) == nullptr,
+                             "defense-ready worker must not walk halfway to shop then return empty-handed");
+    }
+    turn.round_no = 131;
+    const auto morning = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(morning, 10010) && command_for(morning, 10010)->action == "move",
+                         "same funded trip must start when the next morning has sufficient time");
+}
+
 ASTRA_TEST(strategy_collects_best_priced_adjacent_mineral) {
     auto turn = economy_turn();
     turn.map.zones.push_back({{2, 1}, "stone"});
