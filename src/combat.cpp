@@ -119,8 +119,14 @@ astra::Optional<AttackPlan> rocket_plan(const TurnObservation& turn,
         for (int dx = -1; dx <= 1; ++dx) {
             for (int dy = -1; dy <= 1; ++dy) {
                 const Pos target{robot->pos.x + dx, robot->pos.y + dy};
+                const bool hits_opponent_wave = std::any_of(
+                    robots.begin(), robots.end(), [&](const RobotObservation* other) {
+                        return other->target_team &&
+                               *other->target_team == (turn.team_our.type == "challenger" ? "defender" : "challenger") &&
+                               distance(target, other->pos) <= 1;
+                    });
                 if (in_bounds(turn, target) && distance(weapon.pos, target) > 0 &&
-                    distance(weapon.pos, target) <= *weapon.attack_range) {
+                    distance(weapon.pos, target) <= *weapon.attack_range && !hits_opponent_wave) {
                     cells.emplace(target.x, target.y);
                 }
             }

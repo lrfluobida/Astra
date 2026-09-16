@@ -32,6 +32,7 @@ cd "$project_dir"
   src/http_server.cpp \
   src/json_io.cpp \
   src/main.cpp \
+  src/match_log.cpp \
   src/navigation.cpp \
   src/protocol.cpp \
   src/session.cpp \
@@ -45,6 +46,7 @@ cd "$project_dir"
   src/combat.cpp \
   src/defense.cpp \
   src/json_io.cpp \
+  src/match_log.cpp \
   src/navigation.cpp \
   src/protocol.cpp \
   src/session.cpp \
@@ -54,6 +56,7 @@ cd "$project_dir"
   tests/actions_test.cpp \
   tests/combat_test.cpp \
   tests/defense_test.cpp \
+  tests/match_log_test.cpp \
   tests/navigation_test.cpp \
   tests/protocol_test.cpp \
   tests/session_test.cpp \

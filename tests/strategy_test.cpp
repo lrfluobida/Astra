@@ -76,7 +76,7 @@ astra::TurnObservation late_game_turn() {
     turn.map.zones = {{{6, 28}, "weaponShop"}, {{6, 27}, "vendor"}};
     turn.team_our.roles = {worker(10010, {7, 28}), station({10, 24}),
                            rocket(10040, {9, 25}, 3), rocket(10041, {9, 22}, 3),
-                           rocket(10042, {12, 22}, 3)};
+                           rocket(10042, {12, 25}, 3)};
     turn.team_our.roles[1].level = 3;
     turn.team_our.roles[1].health = 4500;
     const auto layout = astra::derive_defense_layout(turn);
@@ -502,7 +502,7 @@ ASTRA_TEST(strategy_buys_and_uses_upgrades_on_far_rockets_first) {
         station({10, 8}),
         rocket(10040, {12, 9}, 1),
         rocket(10041, {12, 6}, 1),
-        rocket(10042, {9, 6}, 1),
+        rocket(10042, {9, 9}, 1),
     };
 
     const auto purchase = astra::BaselineStrategy().decide(turn);
@@ -533,11 +533,17 @@ ASTRA_TEST(strategy_buys_and_uses_upgrades_on_far_rockets_first) {
     turn.team_our.roles.front().backpack.clear();
     turn.team_our.roles.front().pos = {9, 10};
     turn.team_our.gold = 150;
+    const auto near_second = astra::BaselineStrategy().decide(turn);
+    buy = command_for(near_second, 10010);
+    astra::test::require(buy && buy->action == "buy" &&
+                             buy->name == astra::Optional<std::string>("WeaponUpgradeVoucher1"),
+                         "near rocket must reach level2 before any rocket reaches level3");
+    turn.team_our.roles[4].level = 2;
     const auto tier_two = astra::BaselineStrategy().decide(turn);
     buy = command_for(tier_two, 10010);
     astra::test::require(buy && buy->action == "buy" &&
                              buy->name == astra::Optional<std::string>("WeaponUpgradeVoucher2"),
-                         "both far rockets must continue toward level3 before upgrading near");
+                         "all rockets at level2 must unlock rear-first level3 upgrades");
 }
 
 ASTRA_TEST(strategy_collects_stone_for_front_wall_while_other_worker_upgrades) {
@@ -550,7 +556,7 @@ ASTRA_TEST(strategy_collects_stone_for_front_wall_while_other_worker_upgrades) {
     turn.team_our.roles = {
         worker(10010, {7, 10}), worker(10012, {7, 6}), station({10, 8}),
         rocket(10040, {12, 9}, 1), rocket(10041, {12, 6}, 1),
-        rocket(10042, {9, 6}, 1),
+        rocket(10042, {9, 9}, 1),
     };
 
     const auto decision = astra::BaselineStrategy().decide(turn);
@@ -573,7 +579,7 @@ ASTRA_TEST(strategy_builds_only_the_front_half_wall_with_reserved_stone) {
     turn.team_our.roles = {
         worker(10010, {1, 1}), builder, station({10, 8}),
         rocket(10040, {12, 9}, 3), rocket(10041, {12, 6}, 3),
-        rocket(10042, {9, 6}, 3),
+        rocket(10042, {9, 9}, 3),
     };
 
     const auto layout = astra::derive_defense_layout(turn);
@@ -598,7 +604,7 @@ ASTRA_TEST(strategy_rebuild_shortage_does_not_block_sale_or_other_worker) {
     turn.team_our.gold = 0;
     turn.map.zones = {{{7, 24}, "vendor"}, {{12, 27}, "copper"}};
     turn.team_our.roles = {worker(10010, {8, 25}), worker(10012, {11, 26}),
-                           station({10, 24}), rocket(10042, {12, 22}, 1)};
+                           station({10, 24}), rocket(10042, {12, 25}, 1)};
     turn.team_our.roles.front().backpack.assign(10, "copper");
     const auto decision = astra::BaselineStrategy().decide(turn);
     const auto* sale = command_for(decision, 10010);
@@ -627,7 +633,7 @@ ASTRA_TEST(strategy_returns_to_staff_all_three_rockets_over_applied_rounds) {
     turn.team_our.roles = {worker(10010, {10, 22}), worker(10012, {11, 22}),
                            pioneer(10011, {12, 23}), station({10, 24}),
                            rocket(10040, {9, 25}, 3), rocket(10041, {9, 22}, 3),
-                           rocket(10042, {12, 22}, 3)};
+                           rocket(10042, {12, 25}, 3)};
     for (auto& role : turn.team_our.roles) {
         if (role.role_type == astra::RoleType::rocket) role.attack_power = 20;
     }

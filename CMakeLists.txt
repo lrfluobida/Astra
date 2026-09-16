@@ -17,6 +17,7 @@ set(ASTRA_SOURCES
     src/http_server.cpp
     src/json_io.cpp
     src/main.cpp
+    src/match_log.cpp
     src/navigation.cpp
     src/protocol.cpp
     src/session.cpp

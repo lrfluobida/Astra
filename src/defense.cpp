@@ -71,7 +71,7 @@ astra::Optional<DefenseLayout> derive_defense_layout(const TurnObservation& turn
         layout.front_wall_tiles.push_back({front_x - 2 * toward_center_x, edge_y});
     }
     const int near_x = toward_center_x > 0 ? station->pos.x + 2 : station->pos.x - 1;
-    const int near_y = toward_center_y > 0 ? station->pos.y + 1 : station->pos.y - 2;
+    const int near_y = toward_center_y > 0 ? station->pos.y - 2 : station->pos.y + 1;
     const int far_x = toward_center_x > 0 ? station->pos.x - 1 : station->pos.x + 2;
     const int far_y = toward_center_y > 0 ? station->pos.y - 2 : station->pos.y + 1;
     const int opposite_far_y = toward_center_y > 0 ? station->pos.y + 1 : station->pos.y - 2;

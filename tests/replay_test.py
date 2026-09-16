@@ -6,6 +6,7 @@ import select
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -163,12 +164,13 @@ def main():
         }
     ]
 
+    stderr_file = tempfile.TemporaryFile(mode="w+b")
     process = subprocess.Popen(
         [str(Path(args.binary).resolve()), "--replay", "-"],
         cwd=str(ROOT),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=stderr_file,
         text=True,
         encoding="utf-8",
         bufsize=1,
@@ -241,10 +243,29 @@ def main():
         exit_code = process.wait(timeout=5.0)
         if exit_code != 0:
             raise AssertionError("replay process exited with {}".format(exit_code))
+        stderr_file.seek(0)
+        stderr_lines = stderr_file.read().decode("utf-8").splitlines()
+        round_logs = []
+        for line in stderr_lines:
+            if not line.startswith("ASTRA_LOG "):
+                continue
+            event = json.loads(line[len("ASTRA_LOG "):])
+            if event.get("event") == "round":
+                round_logs.append(event)
+        expected_round_logs = args.rounds - len(damaged_rounds) + repeated_requests
+        if len(round_logs) != expected_round_logs:
+            raise AssertionError(
+                "expected {} structured round logs, found {}".format(
+                    expected_round_logs, len(round_logs)
+                )
+            )
+        if not any(event.get("request", {}).get("duplicate") for event in round_logs):
+            raise AssertionError("repeated replay request was not marked duplicate in stderr")
     finally:
         if process.poll() is None:
             process.kill()
             process.wait(timeout=3.0)
+        stderr_file.close()
 
     maximum = max(latencies)
     p95 = percentile_95(latencies)

@@ -50,7 +50,7 @@ ASTRA_TEST(task_solver_builds_strict_initial_prompt_only_for_live_task) {
                          "task without a living pioneer must not call the model");
 }
 
-ASTRA_TEST(task_solver_parses_json_markdown_and_plain_answers) {
+ASTRA_TEST(task_solver_parses_structured_answers_and_repairs_plain_output) {
     auto turn = task_turn();
     turn.llm_response =
         "```json\n{\"kind\":\"answer\",\"answer\":{\"city\":\"北京\",\"temperature\":18}}\n```";
@@ -63,9 +63,24 @@ ASTRA_TEST(task_solver_parses_json_markdown_and_plain_answers) {
 
     turn.llm_response = "北京当前温度为18摄氏度";
     const auto plain = astra::task_candidates(turn);
-    astra::test::require(plain.actions.size() == 1 &&
-                             plain.actions.front().command.task_answer == turn.llm_response,
-                         "plain model output must remain a compatible final answer");
+    astra::test::require(plain.actions.empty() && plain.top_level.size() == 1 &&
+                             plain.top_level.front().kind == astra::TopLevelKind::prompt,
+                         "unstructured output must be confirmed in the answer protocol before submission");
+}
+
+ASTRA_TEST(task_solver_does_not_submit_model_analysis_or_shell_as_an_answer) {
+    auto turn = task_turn();
+    for (const std::string response : {"I need to inspect the files first.",
+                                       "```bash\nls -la\n```", "   ",
+                                       "{\"answer\":\"not final\",\"command\":\"ls\"}",
+                                       "echo '{\"answer\":\"not final\"}'",
+                                       "I might return {\"answer\":\"18\"}, but must verify first."}) {
+        turn.llm_response = response;
+        const auto result = astra::task_candidates(turn);
+        astra::test::require(result.actions.empty() && result.top_level.size() == 1 &&
+                                 result.top_level.front().kind == astra::TopLevelKind::prompt,
+                             "analysis, shell text, and blank model output must never be submitted");
+    }
 }
 
 ASTRA_TEST(task_solver_executes_model_command_then_requests_evidence_review) {

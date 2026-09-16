@@ -5,6 +5,7 @@ import json
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -77,11 +78,12 @@ def run_server(command, fixture):
     )
     fixture["vendorShopList"] = [{"name": "copper", "price": 5}]
     port = reserve_port()
+    stderr_file = tempfile.TemporaryFile(mode="w+b")
     process = subprocess.Popen(
         command(port),
         cwd=str(ROOT),
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=stderr_file,
     )
     try:
         wait_until_ready(process, port)
@@ -244,6 +246,7 @@ def run_server(command, fixture):
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=3.0)
+        stderr_file.close()
 
 
 def main():

@@ -130,7 +130,7 @@ bool defense_complete(const TurnObservation& turn, const DefenseLayout& layout) 
 astra::Optional<UpgradeTarget> choose_upgrade_target(const TurnObservation& turn,
                                                    const DefenseLayout& layout) {
     for (const int level : {1, 2}) {
-        for (const auto& pos : layout.far_rockets) {
+        for (const auto& pos : {layout.far_rockets[0], layout.far_rockets[1], layout.near_rocket}) {
             const auto* weapon = weapon_at(turn, pos);
             if (weapon && weapon->level == astra::Optional<int>(level)) {
                 return UpgradeTarget{pos,
@@ -138,12 +138,6 @@ astra::Optional<UpgradeTarget> choose_upgrade_target(const TurnObservation& turn
                                                 : "WeaponUpgradeVoucher2"};
             }
         }
-    }
-    const auto* near = weapon_at(turn, layout.near_rocket);
-    if (near && near->level && *near->level >= 1 && *near->level < 3) {
-        return UpgradeTarget{layout.near_rocket,
-                             *near->level == 1 ? "WeaponUpgradeVoucher1"
-                                               : "WeaponUpgradeVoucher2"};
     }
     if (!rockets_complete(turn, layout)) return astra::nullopt;
     for (const auto& pos : layout.front_wall_tiles) {

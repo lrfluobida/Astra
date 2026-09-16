@@ -89,6 +89,8 @@ ASTRA_TEST(defense_derives_build_rings_and_three_rocket_layout) {
                          "rear corner must remain open");
     astra::test::require(has_pos(layout->weapon_build_tiles, layout->near_rocket),
                          "near rocket must be inside the weapon ring");
+    astra::test::require(layout->near_rocket.x == 4 && layout->near_rocket.y == 30,
+                         "upper base front rocket must occupy upper enemy-facing corner away from opponent");
     astra::test::require(has_pos(layout->weapon_build_tiles, layout->far_rockets[0]) &&
                              has_pos(layout->weapon_build_tiles, layout->far_rockets[1]),
                          "far rockets must be inside the weapon ring");

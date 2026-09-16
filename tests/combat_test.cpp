@@ -52,7 +52,7 @@ astra::TurnObservation combat_turn() {
 
 }  // namespace
 
-ASTRA_TEST(combat_attacks_any_pve_robot_but_prioritizes_our_immediate_threat) {
+ASTRA_TEST(combat_rocket_leaves_opponent_wave_alive) {
     auto turn = combat_turn();
     const auto rocket = weapon(10040, {10, 10}, astra::RoleType::rocket, 1, 10, 20);
     turn.robots = {
@@ -69,14 +69,28 @@ ASTRA_TEST(combat_attacks_any_pve_robot_but_prioritizes_our_immediate_threat) {
 
     turn.robots.erase(turn.robots.begin() + 1);
     const auto remaining = astra::plan_weapon_attack(turn, rocket);
-    astra::test::require(remaining &&
-                             std::max(std::abs(remaining->targets[0].x - 12),
-                                      std::abs(remaining->targets[0].y - 10)) <= 1,
-                         "PVE scoring must still attack robots with another targetTeam");
+    astra::test::require(!remaining,
+                         "rocket must not help the opponent clear its wave");
 
     turn.round_no = 70;
     astra::test::require(!astra::plan_weapon_attack(turn, rocket),
                          "weapons must remain idle during daylight");
+}
+
+ASTRA_TEST(combat_rocket_avoids_enemy_wave_in_splash_even_at_level_three) {
+    auto turn = combat_turn();
+    const auto gun = weapon(10040, {1, 30}, astra::RoleType::rocket, 3, 41, 20);
+    turn.robots = {robot(1, {20, 15}, "smallRobot", 100, "challenger"),
+                   robot(2, {21, 15}, "smallRobot", 100, "defender")};
+    const auto plan = astra::plan_weapon_attack(turn, gun);
+    astra::test::require(plan && plan->targets.size() == 3, "own wave must still be defended");
+    for (const auto& pos : plan->targets) {
+        astra::test::require(std::max(std::abs(pos.x - 21), std::abs(pos.y - 15)) > 1,
+                             "every missile splash must avoid known opponent robots");
+    }
+    turn.robots.front().pos = turn.robots.back().pos;
+    astra::test::require(!astra::plan_weapon_attack(turn, gun),
+                         "overlapping waves have no opponent-safe rocket shot");
 }
 
 ASTRA_TEST(combat_rocket_uses_empty_splash_cell_for_cluster) {

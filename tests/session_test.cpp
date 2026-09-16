@@ -180,6 +180,38 @@ ASTRA_TEST(session_accepts_only_results_from_an_earlier_sent_request) {
                          "next-round command result must satisfy the pending command");
 }
 
+ASTRA_TEST(session_repairs_unstructured_platform_model_reply_before_submission) {
+    astra::AgentSession session;
+    const astra::BaselineStrategy strategy;
+    auto input = session_fixture();
+    input["phaseTask"] = "Read local task data and return its exact answer.";
+    const auto first = planned_response(session, strategy, input);
+    astra::test::require(first.isMember("prompt"), "active task must ask platform model to solve it");
+    input["roundNo"] = 2;
+    input["llmResp"] = "I will inspect the files first.";
+    const auto repair = planned_response(session, strategy, input);
+    astra::test::require(repair.isMember("prompt") &&
+                             !repair["roleCommandMap"].isMember("10011"),
+                         "platform analysis reply must trigger repair, never pioneer submission");
+    input["roundNo"] = 3;
+    input["llmResp"] = R"({"kind":"command","command":"cat task-data.txt"})";
+    const auto command = planned_response(session, strategy, input);
+    astra::test::require(command["executeCmd"] == "cat task-data.txt", "repaired command must reach sandbox");
+    input["roundNo"] = 4;
+    input["llmResp"] = "";
+    input["lastCmdResult"] = "[exitCode:0]\n42";
+    const auto review = planned_response(session, strategy, input);
+    astra::test::require(review["prompt"].asString().find("[exitCode:0]\n42") != std::string::npos,
+                         "real sandbox evidence must return to platform model");
+    input["roundNo"] = 5;
+    input["lastCmdResult"] = "";
+    input["llmResp"] = R"({"kind":"answer","answer":"42"})";
+    const auto answer = planned_response(session, strategy, input);
+    astra::test::require(answer["roleCommandMap"]["10011"]["taskAnswer"] == "42" &&
+                             session.diagnostics().daily_llm_used == 0,
+                         "explicit answer must submit without charging the non-task daily model budget");
+}
+
 ASTRA_TEST(session_passes_bounded_current_task_history_to_the_real_strategy) {
     astra::AgentSession session;
     const astra::BaselineStrategy strategy;

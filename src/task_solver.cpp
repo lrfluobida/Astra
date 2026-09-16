@@ -48,6 +48,8 @@ std::string protocol_text() {
         "可以直接作答时：{\"kind\":\"answer\",\"answer\":\"最终提交内容\"}\n"
         "必须读取文件或计算时：{\"kind\":\"command\",\"command\":\"一条可执行的 shell 命令\"}\n"
         "answer 可以是字符串、对象或数组；必须严格保留题目要求的字段名和格式。\n"
+        "若答案依赖沙盒文件或接口，必须先用 command 读取真实文档和数据；不要猜测文件路径、接口参数或结果。"
+        "命令失败、超时或输出被截断时，先修正命令取得所需证据；解释、计划和 shell 代码不能作为 answer。\n"
         "command 必须在 10 秒内结束，输出仅保留下一步求解所需证据，不启动后台进程。";
 }
 
@@ -86,7 +88,8 @@ std::string review_prompt(const TurnObservation& turn) {
 
 std::string repair_prompt(const TurnObservation& turn, const std::string& response) {
     return
-        "格式修复：你上一次输出像 JSON，但无法解析或缺少必需字段。不要重新讲解，只根据原任务修复输出格式。\n\n"
+        "格式修复：你上一次输出不是可执行的任务协议 JSON，或缺少必需字段。不要重新讲解，只根据原任务修复输出格式。"
+        "若上次只是分析、计划或命令，请返回 kind=command；只有确定的最终答案才返回 kind=answer。\n\n"
         "<TASK>\n" +
         turn.phase_task +
         "\n</TASK>\n\n"
@@ -114,21 +117,25 @@ std::string answer_text(const Json::Value& answer) {
 }
 
 ModelResult parse_model_result(const std::string& raw) {
-    const std::string response = trim(raw);
-    const auto first_brace = response.find('{');
-    const auto last_brace = response.rfind('}');
-    if (first_brace == std::string::npos && last_brace == std::string::npos) {
-        return {ModelResultKind::answer, response};
-    }
-    if (first_brace == std::string::npos || last_brace == std::string::npos ||
-        first_brace > last_brace) {
-        return {ModelResultKind::malformed, response};
+    std::string response = trim(raw);
+    if (response.compare(0, 3, "```") == 0) {
+        const auto newline = response.find('\n');
+        const std::string fence = trim(response.substr(0, newline));
+        if ((fence != "```json" && fence != "```") || newline == std::string::npos ||
+            response.size() < newline + 4 ||
+            response.compare(response.size() - 3, 3, "```") != 0) {
+            return {ModelResultKind::malformed, response};
+        }
+        response = trim(response.substr(newline + 1, response.size() - newline - 4));
     }
 
     Json::Value parsed;
     std::string error;
-    if (parse_json(response.substr(first_brace, last_brace - first_brace + 1), parsed, error)) {
+    if (parse_json(response, parsed, error)) {
         if (!parsed.isObject()) return {ModelResultKind::malformed, response};
+        if (parsed.isMember("answer") && parsed.isMember("command")) {
+            return {ModelResultKind::malformed, response};
+        }
         const std::string kind = parsed.isMember("kind") && parsed["kind"].isString()
                                      ? parsed["kind"].asString()
                                      : "";
