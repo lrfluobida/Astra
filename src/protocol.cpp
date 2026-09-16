@@ -325,6 +325,11 @@ bool UnitObservation::controllable() const {
     return owned && role_type != RoleType::unknown;
 }
 
+bool is_robot_summon_order(const std::string& name) {
+    return name == "SmallRobotSummonOrder" || name == "MiddleRobotSummonOrder" ||
+           name == "LargeRobotSummonOrder" || name == "BossRobotSummonOrder";
+}
+
 ParseResult parse_turn(const Json::Value& input) {
     ParseResult result;
     if (!input.isObject()) {

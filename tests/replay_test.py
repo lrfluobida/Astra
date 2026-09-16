@@ -11,6 +11,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SUMMON_ORDERS = {
+    "SmallRobotSummonOrder", "MiddleRobotSummonOrder",
+    "LargeRobotSummonOrder", "BossRobotSummonOrder",
+}
 ALLOWED_ACTIONS = {
     "move",
     "collect",
@@ -38,7 +42,9 @@ def validate_response(response, round_no):
                     round_no, actor_id, action
                 )
             )
-        if action in {"move", "collect", "build", "use"}:
+        if action in {"move", "collect", "build"} or (
+            action == "use" and command.get("name") not in SUMMON_ORDERS
+        ):
             targets = command.get("targetPos")
             if not isinstance(targets, list) or len(targets) != 1:
                 raise AssertionError("{} requires one targetPos".format(action))

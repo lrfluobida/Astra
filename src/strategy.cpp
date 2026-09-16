@@ -42,6 +42,7 @@ bool same_pos(const Pos& left, const Pos& right) {
 bool building_at(const TurnObservation& turn, const Pos& target) {
     const auto found = [&](const UnitObservation& unit) {
         return !is_character(unit) && unit.role_type != RoleType::station &&
+               (!unit.health || *unit.health > 0) &&
                same_pos(unit.pos, target);
     };
     return std::any_of(turn.team_our.roles.begin(), turn.team_our.roles.end(), found) ||
@@ -82,6 +83,38 @@ struct UpgradeTarget {
     std::string voucher;
 };
 
+const UnitObservation* own_building_at(const TurnObservation& turn, Pos pos, RoleType type) {
+    for (const auto& unit : turn.team_our.roles) {
+        if (unit.role_type == type && same_pos(unit.pos, pos) && unit.health && *unit.health > 0) {
+            return &unit;
+        }
+    }
+    return nullptr;
+}
+
+bool all_level_three(const TurnObservation& turn, const std::vector<Pos>& positions, RoleType type) {
+    if (positions.empty()) return false;
+    for (const auto& pos : positions) {
+        const auto* building = own_building_at(turn, pos, type);
+        if (!building || building->level != std::optional<int>(3)) return false;
+    }
+    return true;
+}
+
+bool rockets_complete(const TurnObservation& turn, const DefenseLayout& layout) {
+    return all_level_three(turn, {layout.far_rockets[0], layout.far_rockets[1], layout.near_rocket},
+                           RoleType::rocket);
+}
+
+bool defense_complete(const TurnObservation& turn, const DefenseLayout& layout) {
+    if (!rockets_complete(turn, layout) ||
+        !all_level_three(turn, layout.front_wall_tiles, RoleType::wall)) return false;
+    return std::any_of(turn.team_our.roles.begin(), turn.team_our.roles.end(), [](const auto& unit) {
+        return unit.role_type == RoleType::station && unit.health && *unit.health > 0 &&
+               unit.level == std::optional<int>(3);
+    });
+}
+
 std::optional<UpgradeTarget> choose_upgrade_target(const TurnObservation& turn,
                                                    const DefenseLayout& layout) {
     for (const int level : {1, 2}) {
@@ -99,6 +132,24 @@ std::optional<UpgradeTarget> choose_upgrade_target(const TurnObservation& turn,
         return UpgradeTarget{layout.near_rocket,
                              *near->level == 1 ? "WeaponUpgradeVoucher1"
                                                : "WeaponUpgradeVoucher2"};
+    }
+    if (!rockets_complete(turn, layout)) return std::nullopt;
+    for (const auto& pos : layout.front_wall_tiles) {
+        if (!own_building_at(turn, pos, RoleType::wall)) return std::nullopt;
+    }
+    for (const auto& pos : layout.front_wall_tiles) {
+        const auto* wall = own_building_at(turn, pos, RoleType::wall);
+        if (wall->level == std::optional<int>(1) || wall->level == std::optional<int>(2)) {
+            return UpgradeTarget{pos, *wall->level == 1 ? "WallUpgradeVoucher1" : "WallUpgradeVoucher2"};
+        }
+        if (wall->level != std::optional<int>(3)) return std::nullopt;
+    }
+    for (const auto& unit : turn.team_our.roles) {
+        if (unit.role_type == RoleType::station && unit.health && *unit.health > 0 &&
+            (unit.level == std::optional<int>(1) || unit.level == std::optional<int>(2))) {
+            return UpgradeTarget{unit.pos, *unit.level == 1 ? "StationUpgradeVoucher1"
+                                                          : "StationUpgradeVoucher2"};
+        }
     }
     return std::nullopt;
 }
@@ -422,7 +473,7 @@ std::optional<CandidateAction> rocket_build_action(
     return candidate;
 }
 
-std::optional<CandidateAction> rocket_upgrade_action(
+std::optional<CandidateAction> building_upgrade_action(
     const TurnObservation& turn,
     const UnitObservation& worker,
     const UpgradeTarget& target,
@@ -437,7 +488,7 @@ std::optional<CandidateAction> rocket_upgrade_action(
             candidate.command.target_positions = {target.pos};
             candidate.reservation.items[worker.id][target.voucher] = 1;
             candidate.priority = priority;
-            candidate.source = "defense.upgrade_rocket";
+            candidate.source = "defense.upgrade_building";
             return candidate;
         }
         const auto path = next_step_toward_any(
@@ -470,6 +521,96 @@ std::optional<CandidateAction> rocket_upgrade_action(
     if (!path || path->distance == 0) return std::nullopt;
     auto candidate = move_candidate(worker, path->next, priority);
     candidate.source = "defense.move_to_weapon_shop";
+    return candidate;
+}
+
+int carried_summons(const UnitObservation& unit) {
+    return static_cast<int>(std::count_if(unit.backpack.begin(), unit.backpack.end(),
+                                          is_robot_summon_order));
+}
+
+std::optional<CandidateAction> summon_action(const TurnObservation& turn,
+                                             const UnitObservation& worker,
+                                             const NavigationReservations& reservations,
+                                             const std::vector<Pos>& return_goals,
+                                             int priority) {
+    const int remaining = std::max(0, 10 - turn.summon_orders_used);
+    if (remaining == 0) return std::nullopt;
+    for (const std::string name : {"BossRobotSummonOrder", "LargeRobotSummonOrder",
+                                    "MiddleRobotSummonOrder", "SmallRobotSummonOrder"}) {
+        if (!has_item(worker, name)) continue;
+        CandidateAction candidate;
+        candidate.action_key = worker.id;
+        candidate.command.action = "use";
+        candidate.command.name = name;
+        candidate.reservation.items[worker.id][name] = 1;
+        candidate.priority = priority;
+        candidate.source = "offense.use_summon";
+        return candidate;
+    }
+    constexpr int reconstruction_reserve = 300;
+    if (turn.team_our.gold <= reconstruction_reserve || !worker.backpack_capacity ||
+        *worker.backpack_capacity <= 0 ||
+        worker.backpack.size() >= static_cast<std::size_t>(*worker.backpack_capacity)) {
+        return std::nullopt;
+    }
+    int held = 0;
+    for (const auto& unit : turn.team_our.roles) held += carried_summons(unit);
+    const int free_space = *worker.backpack_capacity - static_cast<int>(worker.backpack.size());
+    int slots = std::min(remaining - held, free_space);
+    if (slots <= 0) return std::nullopt;
+    const auto* shop = first_weapon_shop(turn);
+    if (!shop) return std::nullopt;
+    const auto outward = next_step_toward_any(
+        turn, worker.id, interaction_cells(turn, shop->pos), reservations);
+    if (!outward) return std::nullopt;
+    TurnObservation from_shop = turn;
+    find_worker(from_shop, worker.id)->pos = outward->goal;
+    const auto home = next_step_toward_any(from_shop, worker.id, return_goals, {});
+    if (!home) return std::nullopt;
+    const int daylight = 70 - ((turn.round_no - 1) % 130 + 1) + 1;
+    const int available_actions = daylight - outward->distance - home->distance - 2;
+    slots = std::min(slots, available_actions - 1);
+    if (slots <= 0) return std::nullopt;
+
+    const auto large_price = shop_price(turn, "LargeRobotSummonOrder");
+    const auto boss_price = shop_price(turn, "BossRobotSummonOrder");
+    const int budget = turn.team_our.gold - reconstruction_reserve;
+    std::tuple<int, int, int, long long> best_score{};
+    int best_large = 0;
+    int best_boss = 0;
+    for (int bosses = 0; bosses <= (boss_price ? slots : 0); ++bosses) {
+        for (int large = 0; large <= (large_price ? slots - bosses : 0); ++large) {
+            const int purchases = (bosses > 0 ? 1 : 0) + (large > 0 ? 1 : 0);
+            if (bosses + large + purchases > available_actions) continue;
+            const long long cost = static_cast<long long>(bosses) * boss_price.value_or(0) +
+                                   static_cast<long long>(large) * large_price.value_or(0);
+            if (cost > budget) continue;
+            const auto score = std::make_tuple(bosses * 800 + large * 500,
+                                                bosses * 40 + large * 20,
+                                                -(bosses * 10 + large * 4), -cost);
+            if (score > best_score) {
+                best_score = score;
+                best_large = large;
+                best_boss = bosses;
+            }
+        }
+    }
+    if (best_large + best_boss == 0) return std::nullopt;
+    if (outward->distance > 0) {
+        auto candidate = move_candidate(worker, outward->next, priority);
+        candidate.source = "offense.move_to_weapon_shop";
+        return candidate;
+    }
+    CandidateAction candidate;
+    candidate.action_key = worker.id;
+    candidate.command.action = "buy";
+    candidate.command.name = best_boss > 0 ? "BossRobotSummonOrder" : "LargeRobotSummonOrder";
+    candidate.command.number = best_boss > 0 ? best_boss : best_large;
+    candidate.reservation.gold = *candidate.command.number *
+                                 (best_boss > 0 ? *boss_price : *large_price);
+    candidate.priority = priority;
+    candidate.source = "offense.buy_summon";
     return candidate;
 }
 
@@ -646,6 +787,21 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
         }
         if (!upgrade_actor) upgrade_actor = wall_actor;
     }
+    std::optional<int> summon_actor;
+    const bool living_enemy_station = std::any_of(
+        turn.team_enemy.begin(), turn.team_enemy.end(), [](const auto& unit) {
+            return unit.role_type == RoleType::station && unit.health && *unit.health > 0;
+        });
+    if (defense_layout && defense_complete(turn, *defense_layout) && living_enemy_station) {
+        for (const auto* actor : characters) {
+            if (actor->role_type != RoleType::worker) continue;
+            if (!summon_actor) summon_actor = actor->id;
+            if (carried_summons(*actor) > 0) {
+                summon_actor = actor->id;
+                break;
+            }
+        }
+    }
 
     std::vector<CandidateAction> candidates = task.actions;
     const auto combat = combat_candidates(turn, 3000);
@@ -694,7 +850,7 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
                     if (candidate) build_gold_remaining -= 25;
                 }
                 if (!candidate && upgrade_target && upgrade_actor == actor->id) {
-                    candidate = rocket_upgrade_action(turn,
+                    candidate = building_upgrade_action(turn,
                                                       *actor,
                                                       *upgrade_target,
                                                       reservations,
@@ -706,6 +862,9 @@ Decision BaselineStrategy::decide(const TurnObservation& turn) const {
                                                   missing_front_walls,
                                                   reservations,
                                                   priority);
+                }
+                if (!candidate && summon_actor == actor->id) {
+                    candidate = summon_action(turn, *actor, reservations, return_goals, priority);
                 }
                 if (!candidate) candidate = adjacent_sell(turn, *actor, prices, priority);
                 if (!candidate) candidate = adjacent_collect(turn, *actor, prices, priority);

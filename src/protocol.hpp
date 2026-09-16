@@ -99,6 +99,7 @@ struct ErrorObservation {
 
 struct TurnObservation {
     int round_no = 0;
+    int summon_orders_used = 0;
     MapObservation map;
     TeamOurObservation team_our;
     std::vector<UnitObservation> team_enemy;
@@ -139,5 +140,6 @@ struct Decision {
 
 ParseResult parse_turn(const Json::Value& input);
 Json::Value encode_response(const Decision& decision);
+bool is_robot_summon_order(const std::string& name);
 
 }  // namespace astra

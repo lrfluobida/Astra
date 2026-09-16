@@ -23,6 +23,16 @@ astra::Decision accept_task_decision() {
     return decision;
 }
 
+astra::Decision summon_decision(std::initializer_list<std::pair<const int, std::string>> orders) {
+    astra::Decision decision;
+    for (const auto& [actor, name] : orders) {
+        auto& command = decision.role_commands[actor];
+        command.action = "use";
+        command.name = name;
+    }
+    return decision;
+}
+
 bool is_valid_utf8(const std::string& text) {
     std::size_t index = 0;
     while (index < text.size()) {
@@ -351,6 +361,138 @@ ASTRA_TEST(session_enforces_daily_llm_budget_and_records_news_once_per_day) {
                          "new day usage must begin at one");
     astra::test::require(session.diagnostics().news_by_day.size() == 2,
                          "new day must record its first news payload");
+}
+
+ASTRA_TEST(session_injects_and_defensively_caps_daily_summon_orders) {
+    astra::AgentSession session;
+    auto input = session_fixture();
+    int observed_used = -1;
+    for (int round = 1; round <= 4; ++round) {
+        input["roundNo"] = round;
+        session.handle(input, summon_decision({{10010, "SmallRobotSummonOrder"},
+                                               {10012, "MiddleRobotSummonOrder"}}));
+    }
+    input["roundNo"] = 5;
+    session.handle(input, summon_decision({{10010, "LargeRobotSummonOrder"}}));
+
+    input["roundNo"] = 6;
+    const auto capped = session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        observed_used = turn.summon_orders_used;
+        return summon_decision({{10010, "LargeRobotSummonOrder"},
+                                {10012, "BossRobotSummonOrder"}});
+    });
+    astra::test::require(observed_used == 9,
+                         "planner must observe nine conservative daily reservations");
+    astra::test::require(capped["roleCommandMap"].size() == 1,
+                         "session must emit only one of two summons when one slot remains");
+
+    input["roundNo"] = 7;
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        observed_used = turn.summon_orders_used;
+        return summon_decision({{10010, "SmallRobotSummonOrder"}});
+    });
+    astra::test::require(observed_used == 10,
+                         "the final emitted summon must consume the tenth daily slot");
+}
+
+ASTRA_TEST(session_refunds_only_immediate_explicit_summon_failures) {
+    astra::AgentSession session;
+    auto input = session_fixture();
+    session.handle(input, summon_decision({{10010, "LargeRobotSummonOrder"}}));
+
+    input["roundNo"] = 2;
+    input["lastRoundRoleActionResults"]["10010"] = false;
+    int observed_used = -1;
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        observed_used = turn.summon_orders_used;
+        return astra::Decision{};
+    });
+    astra::test::require(observed_used == 0,
+                         "an explicitly failed summon must refund on the immediate next round");
+
+    input["roundNo"] = 3;
+    input["lastRoundRoleActionResults"] = Json::Value(Json::objectValue);
+    session.handle(input, summon_decision({{10010, "BossRobotSummonOrder"}}));
+    input["roundNo"] = 5;
+    input["lastRoundRoleActionResults"]["10010"] = false;
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        observed_used = turn.summon_orders_used;
+        return astra::Decision{};
+    });
+    astra::test::require(observed_used == 1,
+                         "a result arriving after a round gap must not refund a reservation");
+
+    input["roundNo"] = 6;
+    input["lastRoundRoleActionResults"] = Json::Value(Json::objectValue);
+    session.handle(input, summon_decision({{10012, "MiddleRobotSummonOrder"}}));
+    input["roundNo"] = 7;
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        observed_used = turn.summon_orders_used;
+        return astra::Decision{};
+    });
+    astra::test::require(observed_used == 2,
+                         "a missing action result must conservatively keep the reservation");
+}
+
+ASTRA_TEST(session_does_not_recount_duplicate_summon_requests) {
+    astra::AgentSession session;
+    auto input = session_fixture();
+    const auto decision = summon_decision({{10010, "SmallRobotSummonOrder"}});
+    const auto first = session.handle(input, decision);
+    const auto duplicate = session.handle(input, decision);
+    astra::test::require(first == duplicate, "duplicate summon request must return cached response");
+
+    input["roundNo"] = 2;
+    int observed_used = -1;
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        observed_used = turn.summon_orders_used;
+        return astra::Decision{};
+    });
+    astra::test::require(observed_used == 1,
+                         "duplicate requests must not count the same emitted summon twice");
+}
+
+ASTRA_TEST(session_resets_summon_budget_on_day_match_and_identity_boundaries) {
+    astra::AgentSession session;
+    auto input = session_fixture();
+    input["roundNo"] = 130;
+    session.handle(input, summon_decision({{10010, "BossRobotSummonOrder"}}));
+
+    int observed_used = -1;
+    input["roundNo"] = 131;
+    input["lastRoundRoleActionResults"]["10010"] = false;
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        observed_used = turn.summon_orders_used;
+        return summon_decision({{10010, "SmallRobotSummonOrder"}});
+    });
+    astra::test::require(observed_used == 0,
+                         "new day must start at zero without refunding the prior day");
+
+    input["roundNo"] = 132;
+    input["lastRoundRoleActionResults"] = Json::Value(Json::objectValue);
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        observed_used = turn.summon_orders_used;
+        return astra::Decision{};
+    });
+    astra::test::require(observed_used == 1,
+                         "the first new-day summon must consume exactly one slot");
+
+    input["roundNo"] = 1;
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        observed_used = turn.summon_orders_used;
+        return summon_decision({{10010, "LargeRobotSummonOrder"}});
+    });
+    astra::test::require(observed_used == 0,
+                         "round rollback must reset the summon budget");
+
+    input["roundNo"] = 2;
+    input["teamOur"]["teamId"] = "replacement-team";
+    session.handle_planned(input, [&](const astra::TurnObservation& turn) {
+        observed_used = turn.summon_orders_used;
+        return astra::Decision{};
+    });
+    astra::test::require(observed_used == 0,
+                         "team identity change must reset the summon budget");
 }
 
 ASTRA_TEST(session_does_not_mutate_confirmed_state_for_malformed_observation) {

@@ -9,6 +9,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace astra {
 
@@ -49,6 +50,12 @@ public:
     const SessionDiagnostics& diagnostics() const;
 
 private:
+    struct PendingSummonOrders {
+        int day = 0;
+        int sent_round = 0;
+        std::vector<int> actors;
+    };
+
     void append_task_history(const std::string& kind, const std::string& content);
     void clear_task_history();
     std::string task_history() const;
@@ -57,6 +64,8 @@ private:
     SessionDiagnostics diagnostics_;
     std::optional<int> last_round_;
     std::optional<int> current_day_;
+    int daily_summon_orders_used_ = 0;
+    std::optional<PendingSummonOrders> pending_summon_orders_;
     std::string team_id_;
     std::string team_type_;
     std::string previous_phase_task_;

@@ -43,6 +43,20 @@ astra::CandidateAction attack(int weapon,
     return candidate;
 }
 
+astra::CandidateAction use_item(int actor,
+                                const std::string& name,
+                                std::vector<astra::Pos> targets = {},
+                                int priority = 100) {
+    astra::CandidateAction candidate;
+    candidate.action_key = actor;
+    candidate.command.action = "use";
+    candidate.command.name = name;
+    candidate.command.target_positions = std::move(targets);
+    candidate.reservation.items[actor][name] = 1;
+    candidate.priority = priority;
+    return candidate;
+}
+
 }  // namespace
 
 ASTRA_TEST(actions_prevent_controller_double_use) {
@@ -252,6 +266,134 @@ ASTRA_TEST(actions_validate_upgrade_voucher_target_and_level) {
     const auto wrong_level = astra::arbitrate(turn, {use}, {}, {});
     astra::test::require(wrong_level.decision.role_commands.empty(),
                          "voucher1 must not target a level2 weapon");
+}
+
+ASTRA_TEST(actions_validate_wall_and_station_upgrade_vouchers_conservatively) {
+    auto turn = action_turn(20);
+    astra::UnitObservation wall;
+    wall.id = 10040;
+    wall.pos = {8, 25};
+    wall.role_type = astra::RoleType::wall;
+    wall.role_type_raw = "wall";
+    wall.health = 500;
+    wall.level = 1;
+    wall.owned = true;
+    turn.team_our.roles.push_back(wall);
+    for (auto& unit : turn.team_our.roles) {
+        if (unit.id == 10013) unit.pos = {10, 24};
+    }
+
+    auto set_item = [&](int actor, const std::string& name) {
+        for (auto& unit : turn.team_our.roles) {
+            if (unit.id == actor) unit.backpack = {name};
+        }
+    };
+
+    set_item(10010, "WallUpgradeVoucher1");
+    const auto wall_upgrade = astra::arbitrate(
+        turn, {use_item(10010, "WallUpgradeVoucher1", {{8, 25}})}, {}, {});
+    astra::test::require(wall_upgrade.decision.role_commands.count(10010) == 1,
+                         "wall voucher1 must upgrade an adjacent living level1 wall");
+
+    for (auto& unit : turn.team_our.roles) {
+        if (unit.id == 10040) unit.level = 2;
+    }
+    set_item(10010, "WallUpgradeVoucher2");
+    const auto wall_upgrade_two = astra::arbitrate(
+        turn, {use_item(10010, "WallUpgradeVoucher2", {{8, 25}})}, {}, {});
+    astra::test::require(wall_upgrade_two.decision.role_commands.count(10010) == 1,
+                         "wall voucher2 must upgrade an adjacent living level2 wall");
+
+    set_item(10012, "StationUpgradeVoucher1");
+    const auto station_upgrade = astra::arbitrate(
+        turn, {use_item(10012, "StationUpgradeVoucher1", {{10, 24}})}, {}, {});
+    astra::test::require(station_upgrade.decision.role_commands.count(10012) == 1,
+                         "station voucher1 must use the station canonical position");
+
+    const auto footprint_alias = astra::arbitrate(
+        turn, {use_item(10012, "StationUpgradeVoucher1", {{11, 24}})}, {}, {});
+    astra::test::require(footprint_alias.decision.role_commands.empty(),
+                         "station footprint aliases must not replace its canonical position");
+
+    for (auto& unit : turn.team_our.roles) {
+        if (unit.id == 10013) unit.level = 2;
+    }
+    set_item(10012, "StationUpgradeVoucher2");
+    const auto station_upgrade_two = astra::arbitrate(
+        turn, {use_item(10012, "StationUpgradeVoucher2", {{10, 24}})}, {}, {});
+    astra::test::require(station_upgrade_two.decision.role_commands.count(10012) == 1,
+                         "station voucher2 must upgrade an adjacent living level2 station");
+    for (auto& unit : turn.team_our.roles) {
+        if (unit.id == 10013) unit.level = 3;
+    }
+    const auto station_fully_upgraded = astra::arbitrate(
+        turn, {use_item(10012, "StationUpgradeVoucher2", {{10, 24}})}, {}, {});
+    astra::test::require(station_fully_upgraded.decision.role_commands.empty(),
+                         "a fully upgraded station must reject voucher2");
+
+    set_item(10010, "StationUpgradeVoucher1");
+    const auto wrong_role = astra::arbitrate(
+        turn, {use_item(10010, "StationUpgradeVoucher1", {{8, 25}})}, {}, {});
+    astra::test::require(wrong_role.decision.role_commands.empty(),
+                         "station voucher must not upgrade a wall");
+
+    for (auto& unit : turn.team_our.roles) {
+        if (unit.id == 10040) unit.level = 3;
+    }
+    set_item(10010, "WallUpgradeVoucher2");
+    const auto fully_upgraded = astra::arbitrate(
+        turn, {use_item(10010, "WallUpgradeVoucher2", {{8, 25}})}, {}, {});
+    astra::test::require(fully_upgraded.decision.role_commands.empty(),
+                         "a fully upgraded wall must reject voucher2");
+
+    const auto missing_target = astra::arbitrate(
+        turn, {use_item(10010, "WallUpgradeVoucher2")}, {}, {});
+    astra::test::require(missing_target.decision.role_commands.empty(),
+                         "upgrade vouchers must require one canonical target");
+
+    for (auto& unit : turn.team_our.roles) {
+        if (unit.id == 10040) {
+            unit.level = 2;
+            unit.health = 0;
+        }
+    }
+    const auto dead_target = astra::arbitrate(
+        turn, {use_item(10010, "WallUpgradeVoucher2", {{8, 25}})}, {}, {});
+    astra::test::require(dead_target.decision.role_commands.empty(),
+                         "upgrade vouchers must reject destroyed buildings");
+}
+
+ASTRA_TEST(actions_recognize_and_cap_robot_summon_orders) {
+    astra::test::require(astra::is_robot_summon_order("SmallRobotSummonOrder") &&
+                             astra::is_robot_summon_order("MiddleRobotSummonOrder") &&
+                             astra::is_robot_summon_order("LargeRobotSummonOrder") &&
+                             astra::is_robot_summon_order("BossRobotSummonOrder"),
+                         "all four robot summon orders must be recognized");
+    astra::test::require(!astra::is_robot_summon_order("smallRobotSummonOrder") &&
+                             !astra::is_robot_summon_order("RobotSummonOrder"),
+                         "robot summon order matching must be exact");
+
+    auto turn = action_turn(71);
+    turn.summon_orders_used = 9;
+    for (auto& unit : turn.team_our.roles) {
+        if (unit.id == 10010) unit.backpack = {"LargeRobotSummonOrder"};
+        if (unit.id == 10012) unit.backpack = {"BossRobotSummonOrder"};
+    }
+    const auto one_slot = astra::arbitrate(
+        turn,
+        {use_item(10010, "LargeRobotSummonOrder", {}, 100),
+         use_item(10012, "BossRobotSummonOrder", {}, 90)},
+        {},
+        {});
+    astra::test::require(one_slot.decision.role_commands.size() == 1 &&
+                             one_slot.decision.role_commands.count(10010) == 1,
+                         "arbitration must share the final daily summon slot across actors");
+
+    turn.summon_orders_used = 10;
+    const auto exhausted = astra::arbitrate(
+        turn, {use_item(10010, "LargeRobotSummonOrder")}, {}, {});
+    astra::test::require(exhausted.decision.role_commands.empty(),
+                         "arbitration must reject summons after the daily global cap");
 }
 
 ASTRA_TEST(actions_reject_unknown_build_area_and_choose_one_top_level_request) {

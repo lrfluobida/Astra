@@ -8,6 +8,7 @@ namespace {
 
 constexpr int kRoundsPerDay = 130;
 constexpr int kDailyLlmLimit = 3;
+constexpr int kDailySummonOrderLimit = 10;
 constexpr std::size_t kMaximumTaskHistoryEntries = 16;
 constexpr std::size_t kMaximumTaskHistoryBytes = 32768;
 constexpr std::size_t kMaximumTaskHistoryEventBytes = 8192;
@@ -101,7 +102,22 @@ Json::Value AgentSession::handle_planned(const Json::Value& input,
     if (!current_day_ || *current_day_ != day) {
         current_day_ = day;
         diagnostics_.daily_llm_used = 0;
+        daily_summon_orders_used_ = 0;
+        pending_summon_orders_.reset();
+    } else if (pending_summon_orders_) {
+        if (pending_summon_orders_->day == day &&
+            pending_summon_orders_->sent_round + 1 == turn.round_no) {
+            for (const int actor : pending_summon_orders_->actors) {
+                const auto result = turn.last_round_role_action_results.find(actor);
+                if (result != turn.last_round_role_action_results.end() && !result->second &&
+                    daily_summon_orders_used_ > 0) {
+                    --daily_summon_orders_used_;
+                }
+            }
+        }
+        pending_summon_orders_.reset();
     }
+    turn.summon_orders_used = daily_summon_orders_used_;
     diagnostics_.news_by_day.try_emplace(day, turn.world_news);
 
     bool task_changed = false;
@@ -163,6 +179,27 @@ Json::Value AgentSession::handle_planned(const Json::Value& input,
     turn.task_history = task_history();
 
     Decision proposed = planner(turn);
+
+    std::vector<int> emitted_summon_actors;
+    for (auto command = proposed.role_commands.begin(); command != proposed.role_commands.end();) {
+        const bool robot_summon = command->second.action == "use" && command->second.name &&
+                                  is_robot_summon_order(*command->second.name);
+        if (robot_summon && daily_summon_orders_used_ >= kDailySummonOrderLimit) {
+            command = proposed.role_commands.erase(command);
+            continue;
+        }
+        if (robot_summon) {
+            ++daily_summon_orders_used_;
+            emitted_summon_actors.push_back(command->first);
+        }
+        ++command;
+    }
+    if (emitted_summon_actors.empty()) {
+        pending_summon_orders_.reset();
+    } else {
+        pending_summon_orders_ = PendingSummonOrders{day, turn.round_no,
+                                                      std::move(emitted_summon_actors)};
+    }
 
     diagnostics_.degradation_reason.clear();
     if (proposed.prompt) {
@@ -246,6 +283,8 @@ void AgentSession::reset_match() {
     diagnostics_.generation = next_generation;
     last_round_.reset();
     current_day_.reset();
+    daily_summon_orders_used_ = 0;
+    pending_summon_orders_.reset();
     team_id_.clear();
     team_type_.clear();
     previous_phase_task_.clear();

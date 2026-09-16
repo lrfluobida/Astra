@@ -67,6 +67,38 @@ const astra::RoleCommand* command_for(const astra::Decision& decision, int actor
     return found == decision.role_commands.end() ? nullptr : &found->second;
 }
 
+astra::TurnObservation late_game_turn() {
+    auto turn = economy_turn();
+    turn.map.width = 41;
+    turn.map.height = 32;
+    turn.team_our.gold = 1300;
+    turn.map.zones = {{{6, 28}, "weaponShop"}, {{6, 27}, "vendor"}};
+    turn.team_our.roles = {worker(10010, {7, 28}), station({10, 24}),
+                           rocket(10040, {9, 25}, 3), rocket(10041, {10, 25}, 3),
+                           rocket(10042, {12, 22}, 3)};
+    turn.team_our.roles[1].level = 3;
+    turn.team_our.roles[1].health = 4500;
+    const auto layout = astra::derive_defense_layout(turn);
+    int id = 11000;
+    for (const auto& pos : layout->front_wall_tiles) {
+        auto wall = station(pos);
+        wall.id = id++;
+        wall.role_type = astra::RoleType::wall;
+        wall.role_type_raw = "wall";
+        wall.level = 3;
+        turn.team_our.roles.push_back(wall);
+    }
+    auto enemy = station({29, 8});
+    enemy.id = 20013;
+    enemy.owned = false;
+    turn.team_enemy.push_back(enemy);
+    turn.weapon_shop = {{"WeaponUpgradeVoucher1", 100}, {"WeaponUpgradeVoucher2", 150},
+                        {"WallUpgradeVoucher1", 20}, {"WallUpgradeVoucher2", 30},
+                        {"StationUpgradeVoucher1", 100}, {"StationUpgradeVoucher2", 150},
+                        {"LargeRobotSummonOrder", 100}, {"BossRobotSummonOrder", 200}};
+    return turn;
+}
+
 }  // namespace
 
 ASTRA_TEST(strategy_collects_best_priced_adjacent_mineral) {
@@ -557,4 +589,229 @@ ASTRA_TEST(strategy_leaves_station_ring_for_rocket_post_before_dusk) {
     const auto* move = command_for(decision, 10010);
     astra::test::require(move && move->action == "move",
                          "being on station ring must not prevent moving to a rocket before dusk");
+}
+
+ASTRA_TEST(strategy_upgrades_weapons_then_front_walls_then_station) {
+    auto turn = late_game_turn();
+    turn.team_our.roles[4].level = 2;
+    turn.team_our.roles[5].level = 1;
+    turn.team_our.roles[1].level = 1;
+    auto decision = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(decision, 10010) &&
+                             command_for(decision, 10010)->name == "WeaponUpgradeVoucher2",
+                         "unfinished near rocket must still precede walls and station");
+
+    turn.team_our.roles[4].level = 3;
+    turn.team_our.gold = 20;
+    decision = astra::BaselineStrategy().decide(turn);
+    const auto* buy = command_for(decision, 10010);
+    astra::test::require(buy && buy->action == "buy" && buy->name == "WallUpgradeVoucher1",
+                         "finished weapons must unlock the pressure-facing wall upgrade");
+
+    const auto target = turn.team_our.roles[5].pos;
+    turn.team_our.roles.front().pos = {target.x + 1, target.y};
+    turn.team_our.roles.front().backpack = {"WallUpgradeVoucher1"};
+    turn.team_our.gold = 0;
+    decision = astra::BaselineStrategy().decide(turn);
+    const auto* use = command_for(decision, 10010);
+    astra::test::require(use && use->action == "use" && use->name == "WallUpgradeVoucher1" &&
+                             use->target_positions.front().x == target.x &&
+                             use->target_positions.front().y == target.y,
+                         "front-most wall must receive the carried voucher");
+
+    turn.team_our.roles[5].level = 2;
+    turn.team_our.roles[6].level = 1;
+    turn.team_our.roles.front().backpack = {"WallUpgradeVoucher2", "StationUpgradeVoucher1"};
+    decision = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(decision, 10010) &&
+                             command_for(decision, 10010)->name == "WallUpgradeVoucher2",
+                         "front-most wall must reach level3 before side walls or station");
+
+    for (auto& role : turn.team_our.roles) {
+        if (role.role_type == astra::RoleType::wall) role.level = 3;
+    }
+    turn.team_our.roles.front().pos = {9, 24};
+    turn.team_our.roles.front().backpack = {"StationUpgradeVoucher1"};
+    decision = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(decision, 10010) &&
+                             command_for(decision, 10010)->action == "use" &&
+                             command_for(decision, 10010)->name == "StationUpgradeVoucher1",
+                         "finished front walls must unlock station upgrade");
+    turn.team_our.roles[1].level = 2;
+    turn.team_our.roles.front().backpack = {"StationUpgradeVoucher2"};
+    decision = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(decision, 10010) &&
+                             command_for(decision, 10010)->name == "StationUpgradeVoucher2",
+                         "station must be upgraded through level3");
+}
+
+ASTRA_TEST(strategy_late_game_uses_surplus_for_large_boss_mix) {
+    auto turn = late_game_turn();
+    auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* buy = command_for(decision, 10010);
+    astra::test::require(buy && buy->action == "buy" && buy->name == "LargeRobotSummonOrder" &&
+                             buy->number == 10,
+                         "1000 surplus should buy ten large orders, retaining 300 gold");
+    turn.team_our.gold = 2300;
+    decision = astra::BaselineStrategy().decide(turn);
+    buy = command_for(decision, 10010);
+    astra::test::require(buy && buy->name == "BossRobotSummonOrder" && buy->number == 10,
+                         "2000 surplus should fill ten daily slots with bosses");
+    turn.team_our.gold = 1400;
+    decision = astra::BaselineStrategy().decide(turn);
+    buy = command_for(decision, 10010);
+    astra::test::require(buy && buy->name == "BossRobotSummonOrder" && buy->number == 1,
+                         "1100 surplus should start the nine-large/one-boss mix with one boss");
+}
+
+ASTRA_TEST(strategy_summon_orders_require_full_defense_and_living_enemy) {
+    for (const int incomplete : {1, 4, 5}) {
+        auto turn = late_game_turn();
+        turn.team_our.roles[incomplete].level = 2;
+        const auto decision = astra::BaselineStrategy().decide(turn);
+        const auto* command = command_for(decision, 10010);
+        astra::test::require(!command || !command->name ||
+                                 command->name->find("SummonOrder") == std::string::npos,
+                             "any unfinished defense must preempt summon spending");
+    }
+    auto turn = late_game_turn();
+    turn.team_our.roles.front().backpack = {"BossRobotSummonOrder"};
+    turn.team_our.gold = 300;
+    auto decision = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(decision, 10010) &&
+                             command_for(decision, 10010)->action == "use" &&
+                             command_for(decision, 10010)->name == "BossRobotSummonOrder",
+                         "use held orders before buying, even with no spendable gold");
+    turn.team_enemy.front().health = 0;
+    decision = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(decision, 10010) == nullptr,
+                         "do not summon for an already destroyed enemy base");
+}
+
+ASTRA_TEST(strategy_summon_purchases_respect_daylight_capacity_and_prices) {
+    auto turn = late_game_turn();
+    turn.team_our.roles.front().backpack_capacity = 2;
+    auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* buy = command_for(decision, 10010);
+    astra::test::require(buy && buy->action == "buy" && buy->number == 2,
+                         "summon batch must fit free inventory slots");
+    turn.team_our.roles.front().backpack_capacity = 100;
+    turn.team_our.gold = 2300;
+    turn.round_no = 65;
+    decision = astra::BaselineStrategy().decide(turn);
+    buy = command_for(decision, 10010);
+    astra::test::require(!buy || buy->action != "buy" || buy->number.value_or(0) < 10,
+                         "late-day purchase must leave time to use orders and return");
+    turn.round_no = 1241;
+    decision = astra::BaselineStrategy().decide(turn);
+    buy = command_for(decision, 10010);
+    astra::test::require(!buy || (buy->action != "buy" && buy->action != "use"),
+                         "do not send orders after the final night has already spawned");
+    turn.round_no = 10;
+    turn.team_our.gold = 300;
+    decision = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(decision, 10010) == nullptr,
+                         "the reconstruction reserve must not be spent on summons");
+    turn.team_our.gold = 1300;
+    turn.weapon_shop = {{"LargeRobotSummonOrder", 200}, {"BossRobotSummonOrder", 100}};
+    decision = astra::BaselineStrategy().decide(turn);
+    buy = command_for(decision, 10010);
+    astra::test::require(buy && buy->name == "BossRobotSummonOrder" && buy->number == 10,
+                         "summon allocation must use observed shop prices");
+}
+
+ASTRA_TEST(strategy_summon_batch_accounts_for_used_slots_and_other_worker_inventory) {
+    auto turn = late_game_turn();
+    turn.summon_orders_used = 9;
+    auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* buy = command_for(decision, 10010);
+    astra::test::require(buy && buy->action == "buy" && buy->number == 1,
+                         "only one order may be bought when nine daily slots are already used");
+    turn.summon_orders_used = 10;
+    astra::test::require(astra::BaselineStrategy().decide(turn).role_commands.empty(),
+                         "daily cap must stop both purchasing and consumption");
+
+    turn.summon_orders_used = 0;
+    auto other = worker(10012, {7, 27});
+    other.backpack.assign(10, "LargeRobotSummonOrder");
+    turn.team_our.roles.push_back(other);
+    decision = astra::BaselineStrategy().decide(turn);
+    astra::test::require(command_for(decision, 10012) &&
+                             command_for(decision, 10012)->action == "use" &&
+                             command_for(decision, 10010) == nullptr,
+                         "consume the other worker's inventory before buying a redundant batch");
+}
+
+ASTRA_TEST(strategy_returns_to_rebuilding_when_a_max_level_defense_is_destroyed) {
+    auto turn = late_game_turn();
+    turn.team_our.roles[2].health = 0;
+    turn.team_our.roles.front().backpack = {"BossRobotSummonOrder"};
+    const auto decision = astra::BaselineStrategy().decide(turn);
+    const auto* command = command_for(decision, 10010);
+    astra::test::require(command && (command->action == "move" || command->action == "build"),
+                         "destroyed level3 rocket must preempt held summons and trigger rebuilding");
+}
+
+ASTRA_TEST(strategy_applies_a_complete_mixed_summon_purchase_and_use_sequence) {
+    auto turn = late_game_turn();
+    turn.team_our.gold = 1400;
+    int bosses = 0;
+    int large = 0;
+    for (int step = 0; step < 15; ++step, ++turn.round_no) {
+        const auto decision = astra::BaselineStrategy().decide(turn);
+        const auto* command = command_for(decision, 10010);
+        if (!command) continue;
+        astra::test::require(command->name && astra::is_robot_summon_order(*command->name),
+                             "fully funded late-game sequence should only trade summon orders");
+        auto& inventory = turn.team_our.roles.front().backpack;
+        if (command->action == "buy") {
+            const int quantity = command->number.value_or(1);
+            const int price = *command->name == "BossRobotSummonOrder" ? 200 : 100;
+            turn.team_our.gold -= quantity * price;
+            inventory.insert(inventory.end(), quantity, *command->name);
+        } else if (command->action == "use") {
+            const auto item = std::find(inventory.begin(), inventory.end(), *command->name);
+            astra::test::require(item != inventory.end(), "cannot use an unowned order");
+            inventory.erase(item);
+            ++turn.summon_orders_used;
+            if (*command->name == "BossRobotSummonOrder") ++bosses;
+            else ++large;
+        } else {
+            astra::test::require(false, "unexpected action in applied summon sequence");
+        }
+        astra::test::require(turn.team_our.gold >= 300 && turn.summon_orders_used <= 10,
+                             "applied actions must preserve reconstruction money and daily cap");
+    }
+    astra::test::require(bosses == 1 && large == 9 && turn.team_our.gold == 300 &&
+                             turn.team_our.roles.front().backpack.empty(),
+                         "1100 surplus must actually turn into one boss and nine large summons");
+}
+
+ASTRA_TEST(strategy_mixed_summon_plan_counts_each_purchase_before_dusk) {
+    auto turn = late_game_turn();
+    turn.round_no = 60;
+    turn.team_our.gold = 1000;
+    int added_health = 0;
+    for (; turn.round_no <= 70; ++turn.round_no) {
+        const auto decision = astra::BaselineStrategy().decide(turn);
+        const auto* command = command_for(decision, 10010);
+        if (!command) continue;
+        auto& actor = turn.team_our.roles.front();
+        if (command->action == "move") {
+            actor.pos = command->target_positions.front();
+        } else if (command->action == "buy") {
+            const int quantity = command->number.value_or(1);
+            turn.team_our.gold -= quantity * (*command->name == "BossRobotSummonOrder" ? 200 : 100);
+            actor.backpack.insert(actor.backpack.end(), quantity, *command->name);
+        } else if (command->action == "use") {
+            const auto item = std::find(actor.backpack.begin(), actor.backpack.end(), *command->name);
+            astra::test::require(item != actor.backpack.end(), "summon must be in inventory");
+            actor.backpack.erase(item);
+            added_health += *command->name == "BossRobotSummonOrder" ? 800 : 500;
+            ++turn.summon_orders_used;
+        }
+    }
+    astra::test::require(added_health >= 3000 && turn.team_our.gold >= 300 &&
+                             turn.team_our.roles.front().backpack.empty(),
+                         "mixed purchases must fit before dusk and outperform six feasible large orders");
 }

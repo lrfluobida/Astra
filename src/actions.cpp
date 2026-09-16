@@ -42,6 +42,25 @@ bool is_weapon(const UnitObservation& unit) {
            unit.role_type == RoleType::rocket;
 }
 
+struct UpgradeVoucher {
+    RoleType target_type = RoleType::unknown;
+    int required_level = 0;
+};
+
+std::optional<UpgradeVoucher> upgrade_voucher(const std::string& name) {
+    if (name == "WeaponUpgradeVoucher1") return UpgradeVoucher{RoleType::unknown, 1};
+    if (name == "WeaponUpgradeVoucher2") return UpgradeVoucher{RoleType::unknown, 2};
+    if (name == "WallUpgradeVoucher1") return UpgradeVoucher{RoleType::wall, 1};
+    if (name == "WallUpgradeVoucher2") return UpgradeVoucher{RoleType::wall, 2};
+    if (name == "StationUpgradeVoucher1") return UpgradeVoucher{RoleType::station, 1};
+    if (name == "StationUpgradeVoucher2") return UpgradeVoucher{RoleType::station, 2};
+    return std::nullopt;
+}
+
+bool matches_upgrade_target(const UnitObservation& unit, RoleType target_type) {
+    return target_type == RoleType::unknown ? is_weapon(unit) : unit.role_type == target_type;
+}
+
 bool contains_pos(const std::vector<Pos>& positions, const Pos& target) {
     return std::any_of(positions.begin(), positions.end(), [&](const Pos& pos) {
         return same_pos(pos, target);
@@ -200,26 +219,25 @@ std::string validate_use(const TurnObservation& turn, const CandidateAction& can
     if (owner == candidate.reservation.items.end()) return "use must reserve its item";
     const auto item = owner->second.find(*candidate.command.name);
     if (item == owner->second.end() || item->second != 1) return "use must reserve one named item";
-    const bool voucher1 = *candidate.command.name == "WeaponUpgradeVoucher1";
-    const bool voucher2 = *candidate.command.name == "WeaponUpgradeVoucher2";
-    if (voucher1 || voucher2) {
+    const auto voucher = upgrade_voucher(*candidate.command.name);
+    if (voucher) {
         if (candidate.command.target_positions.size() != 1) {
-            return "weapon upgrade voucher requires one targetPos";
+            return "upgrade voucher requires one targetPos";
         }
         const Pos target = candidate.command.target_positions.front();
         if (distance(actor->pos, target) > 1) {
-            return "weapon upgrade target is not adjacent";
+            return "upgrade target is not adjacent";
         }
-        const auto* weapon = static_cast<const UnitObservation*>(nullptr);
+        const auto* building = static_cast<const UnitObservation*>(nullptr);
         for (const auto& unit : turn.team_our.roles) {
-            if (is_weapon(unit) && same_pos(unit.pos, target)) {
-                weapon = &unit;
+            if (matches_upgrade_target(unit, voucher->target_type) && alive(&unit) &&
+                same_pos(unit.pos, target)) {
+                building = &unit;
                 break;
             }
         }
-        const int required_level = voucher1 ? 1 : 2;
-        if (!weapon || !weapon->level || *weapon->level != required_level) {
-            return "weapon upgrade voucher does not match target level";
+        if (!building || !building->level || *building->level != voucher->required_level) {
+            return "upgrade voucher does not match target type and level";
         }
     }
     return "";
@@ -410,6 +428,7 @@ ArbitrationResult arbitrate(const TurnObservation& turn,
     std::set<int> used_actors;
     std::vector<Pos> move_destinations;
     std::map<int, std::map<std::string, int>> reserved_items;
+    int accepted_summon_orders = 0;
 
     for (const std::size_t index : order) {
         const auto& candidate = actions[index];
@@ -417,6 +436,14 @@ ArbitrationResult arbitrate(const TurnObservation& turn,
         std::optional<Pos> move_destination;
         std::string reason =
             validate_action(turn, candidate, rules, controller, move_destination);
+
+        const bool robot_summon = candidate.command.action == "use" &&
+                                  candidate.command.name &&
+                                  is_robot_summon_order(*candidate.command.name);
+        if (reason.empty() && robot_summon &&
+            turn.summon_orders_used + accepted_summon_orders >= 10) {
+            reason = "daily robot summon order limit reached";
+        }
 
         if (reason.empty() && result.reserved_gold + candidate.reservation.gold > turn.team_our.gold) {
             reason = "shared gold reservation exceeds available gold";
@@ -463,6 +490,7 @@ ArbitrationResult arbitrate(const TurnObservation& turn,
         for (const auto& [owner_id, items] : candidate.reservation.items) {
             for (const auto& [name, count] : items) reserved_items[owner_id][name] += count;
         }
+        if (robot_summon) ++accepted_summon_orders;
     }
 
     std::vector<std::size_t> top_order(top_level.size());
